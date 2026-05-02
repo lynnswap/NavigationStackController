@@ -184,7 +184,7 @@ public final class NavigationStackController: NSViewController {
     /// Replaces the current stack with a new set of view controllers.
     ///
     /// Calling this method clears forward history. The array must contain at least one view controller.
-    /// Calls made during an active transition are ignored.
+    /// Calls made during an active transition, or with duplicate view controller instances, are ignored.
     ///
     /// - Parameters:
     ///   - newViewControllers: The new stack of view controllers. The last element becomes the top view controller.
@@ -193,6 +193,10 @@ public final class NavigationStackController: NSViewController {
         precondition(!newViewControllers.isEmpty, "NavigationStackController requires at least one view controller.")
 
         guard canStartNavigation else {
+            return
+        }
+
+        guard Self.hasUniqueViewControllerInstances(newViewControllers) else {
             return
         }
 
@@ -225,13 +229,18 @@ public final class NavigationStackController: NSViewController {
 
     /// Pushes a view controller onto the top of the stack.
     ///
-    /// Pushing a view controller clears forward history. Calls made during an active transition are ignored.
+    /// Pushing a view controller clears forward history. Calls made during an active transition, or with a
+    /// view controller already in back or forward history, are ignored.
     ///
     /// - Parameters:
     ///   - viewController: The view controller to push.
     ///   - animated: A Boolean value indicating whether to animate the transition.
     public func pushViewController(_ viewController: NSViewController, animated: Bool) {
         guard canStartNavigation else {
+            return
+        }
+
+        guard !containsViewControllerInstance(viewController) else {
             return
         }
 
@@ -463,6 +472,22 @@ extension NavigationStackController {
 
         viewController.removeFromParent()
         addChild(viewController)
+    }
+
+    func containsViewControllerInstance(_ viewController: NSViewController) -> Bool {
+        viewControllers.contains { $0 === viewController } || forwardViewControllerStack.contains { $0 === viewController }
+    }
+
+    static func hasUniqueViewControllerInstances(_ viewControllers: [NSViewController]) -> Bool {
+        var identifiers = Set<ObjectIdentifier>()
+
+        for viewController in viewControllers {
+            guard identifiers.insert(ObjectIdentifier(viewController)).inserted else {
+                return false
+            }
+        }
+
+        return true
     }
 
     func showTopViewController(operation: NavigationStackOperation, animated: Bool) {

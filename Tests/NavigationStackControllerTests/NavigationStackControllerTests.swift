@@ -33,6 +33,39 @@ import Testing
 }
 
 @MainActor
+@Test func pushRejectsDuplicateViewControllerInstances() {
+    let rootViewController = TestViewController()
+    let firstViewController = TestViewController()
+    let secondViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+
+    navigationController.pushViewController(firstViewController, animated: false)
+    navigationController.pushViewController(firstViewController, animated: false)
+
+    #expect(identifiers(navigationController.viewControllers) == identifiers([rootViewController, firstViewController]))
+
+    navigationController.pushViewController(secondViewController, animated: false)
+    navigationController.goBack(animated: false)
+    navigationController.pushViewController(secondViewController, animated: false)
+
+    #expect(identifiers(navigationController.viewControllers) == identifiers([rootViewController, firstViewController]))
+    #expect(identifiers(navigationController.forwardViewControllers) == identifiers([secondViewController]))
+}
+
+@MainActor
+@Test func setViewControllersRejectsDuplicateViewControllerInstances() {
+    let rootViewController = TestViewController()
+    let firstViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+
+    navigationController.setViewControllers([rootViewController, firstViewController, firstViewController], animated: false)
+
+    #expect(identifiers(navigationController.viewControllers) == identifiers([rootViewController]))
+    #expect(NavigationStackController.hasUniqueViewControllerInstances([rootViewController, firstViewController]))
+    #expect(!NavigationStackController.hasUniqueViewControllerInstances([rootViewController, firstViewController, firstViewController]))
+}
+
+@MainActor
 @Test func willShowReentrantNavigationIsIgnored() {
     let rootViewController = TestViewController()
     let pushedViewController = TestViewController()
