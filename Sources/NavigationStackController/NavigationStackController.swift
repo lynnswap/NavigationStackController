@@ -224,8 +224,8 @@ public final class NavigationStackController: NSViewController {
 
         let fromViewController = topViewController
         forwardViewControllerStack.removeAll()
-        adopt(viewController)
         viewControllers.append(viewController)
+        reconcileChildViewControllers(keeping: viewControllers)
 
         guard isViewLoaded else {
             return

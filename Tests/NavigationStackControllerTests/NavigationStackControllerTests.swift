@@ -27,6 +27,9 @@ import Testing
     #expect(poppedViewController === firstViewController)
     #expect(navigationController.viewControllers.map(ObjectIdentifier.init) == [rootViewController, secondViewController].map(ObjectIdentifier.init))
     #expect(navigationController.forwardViewControllers.isEmpty)
+    #expect(navigationController.children.contains { $0 === rootViewController })
+    #expect(navigationController.children.contains { $0 === secondViewController })
+    #expect(!navigationController.children.contains { $0 === firstViewController })
 }
 
 @MainActor
