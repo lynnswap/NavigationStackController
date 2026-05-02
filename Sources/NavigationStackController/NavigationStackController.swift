@@ -7,6 +7,12 @@ public enum NavigationStackOperation: Equatable, Sendable {
     case forward
 }
 
+enum NavigationStackDirection {
+    case push
+    case back
+    case forward
+}
+
 @MainActor
 public protocol NavigationStackControllerDelegate: AnyObject {
     func navigationStackController(_ controller: NavigationStackController, willShow viewController: NSViewController, operation: NavigationStackOperation, animated: Bool)
@@ -26,8 +32,12 @@ public final class NavigationStackController: NSViewController {
     public private(set) var forwardViewControllers: [NSViewController] = []
 
     public var allowsBackForwardNavigationGestures = true
+    public var swipeCompletionDistance: CGFloat = 187.5
+    public var maximumSwipeCompletionThreshold: CGFloat = 0.5
+    public var swipeKineticProjectionDuration: TimeInterval = 0.3
+    public var minimumSwipeAnimationDuration: TimeInterval = 0.1
+    public var maximumSwipeAnimationDuration: TimeInterval = 0.4
     public var transitionDuration: TimeInterval = 0.25
-    public var interactiveCompletionThreshold: CGFloat = 0.5
     public var parallaxFactor: CGFloat = 0.28
 
     public var topViewController: NSViewController? {
@@ -51,7 +61,7 @@ public final class NavigationStackController: NSViewController {
     }
 
     private var activeTransition: Transition?
-    private var finishingInteractiveSwipe = false
+    private lazy var viewGestureController = NavigationViewGestureController(navigationController: self)
 
     public convenience init(rootViewController: NSViewController) {
         self.init()
@@ -218,25 +228,11 @@ public final class NavigationStackController: NSViewController {
     }
 
     fileprivate func handleScrollWheel(_ event: NSEvent) -> Bool {
-        guard allowsBackForwardNavigationGestures, activeTransition == nil, event.hasPreciseScrollingDeltas, NSEvent.isSwipeTrackingFromScrollEventsEnabled else {
-            return false
-        }
-
-        guard event.phase.contains(.began), abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
-            return false
-        }
-
-        let direction = navigationDirection(forHorizontalDelta: event.scrollingDeltaX)
-        guard canNavigateInteractively(in: direction) else {
-            return false
-        }
-
-        trackSwipeEvent(event, direction: direction)
-        return true
+        viewGestureController.handleScrollWheel(event)
     }
 
     fileprivate func shouldForwardScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
-        axis == .horizontal && allowsBackForwardNavigationGestures && (canGoBack || canGoForward)
+        viewGestureController.wantsScrollEventsForSwipeTracking(on: axis)
     }
 
     fileprivate func layoutContentViews() {
@@ -253,18 +249,12 @@ public final class NavigationStackController: NSViewController {
     }
 }
 
-private extension NavigationStackController {
-    enum Direction {
-        case push
-        case back
-        case forward
-    }
-
+extension NavigationStackController {
     @MainActor
     final class Transition {
         let fromViewController: NSViewController
         let toViewController: NSViewController
-        let direction: Direction
+        let direction: NavigationStackDirection
         let operation: NavigationStackOperation
         var progress: CGFloat = 0
 
@@ -272,7 +262,7 @@ private extension NavigationStackController {
             progress >= 1 ? toViewController : fromViewController
         }
 
-        init(from fromViewController: NSViewController, to toViewController: NSViewController, direction: Direction, operation: NavigationStackOperation) {
+        init(from fromViewController: NSViewController, to toViewController: NSViewController, direction: NavigationStackDirection, operation: NavigationStackOperation) {
             self.fromViewController = fromViewController
             self.toViewController = toViewController
             self.direction = direction
@@ -384,7 +374,7 @@ private extension NavigationStackController {
         transition.apply(progress: 0, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: false)
     }
 
-    func runTransition(from fromViewController: NSViewController, to toViewController: NSViewController, direction: Direction, operation: NavigationStackOperation, animated: Bool, commit: @escaping @MainActor @Sendable () -> Void) {
+    func runTransition(from fromViewController: NSViewController, to toViewController: NSViewController, direction: NavigationStackDirection, operation: NavigationStackOperation, animated: Bool, commit: @escaping @MainActor @Sendable () -> Void) {
         delegate?.navigationStackController(self, willShow: toViewController, operation: operation, animated: animated)
 
         let transition = Transition(from: fromViewController, to: toViewController, direction: direction, operation: operation)
@@ -426,7 +416,7 @@ private extension NavigationStackController {
         }
     }
 
-    func canNavigateInteractively(in direction: Direction) -> Bool {
+    func canNavigateInteractively(in direction: NavigationStackDirection) -> Bool {
         switch direction {
         case .push:
             return false
@@ -435,6 +425,10 @@ private extension NavigationStackController {
         case .forward:
             return canGoForward
         }
+    }
+
+    func canBeginSwipeGesture(in direction: NavigationStackDirection) -> Bool {
+        activeTransition == nil && canNavigateInteractively(in: direction)
     }
 
     func commitBackTransition(from outgoingViewController: NSViewController, to incomingViewController: NSViewController) {
@@ -466,72 +460,19 @@ private extension NavigationStackController {
         }
     }
 
-    func navigationDirection(forHorizontalDelta deltaX: CGFloat) -> Direction {
+    func navigationDirection(forHorizontalDelta deltaX: CGFloat) -> NavigationStackDirection {
         let isLeftToRight = view.userInterfaceLayoutDirection == .leftToRight
         let wantsBack = isLeftToRight ? deltaX > 0 : deltaX < 0
         return wantsBack ? .back : .forward
     }
 
-    func progressSign(for direction: Direction) -> CGFloat {
-        let isLeftToRight = view.userInterfaceLayoutDirection == .leftToRight
-
-        switch direction {
-        case .push:
-            return 1
-        case .back:
-            return isLeftToRight ? 1 : -1
-        case .forward:
-            return isLeftToRight ? -1 : 1
-        }
+    var swipeDistance: CGFloat {
+        max(containerView.bounds.width, 1)
     }
 
-    func trackSwipeEvent(_ event: NSEvent, direction: Direction) {
-        let sign = progressSign(for: direction)
-        let minProgress: CGFloat = sign < 0 ? -1 : 0
-        let maxProgress: CGFloat = sign > 0 ? 1 : 0
-        var latestProgress: CGFloat = 0
-        var swipeWasCancelled = false
-        var didCompleteSwipe = false
-
-        event.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount], dampenAmountThresholdMin: minProgress, max: maxProgress) { [weak self] amount, phase, isComplete, stop in
-            guard let self else {
-                stop.pointee = true
-                return
-            }
-
-            guard !didCompleteSwipe else {
-                stop.pointee = true
-                return
-            }
-
-            let progress = min(max(amount * sign, 0), 1)
-            latestProgress = progress
-
-            if phase.contains(.began), self.activeTransition == nil {
-                self.beginInteractiveTransition(direction: direction)
-            } else if self.activeTransition == nil, progress > 0 {
-                self.beginInteractiveTransition(direction: direction)
-            }
-
-            self.activeTransition?.apply(progress: progress, in: self.containerView.bounds, parallaxFactor: self.parallaxFactor, animated: false)
-
-            if phase.contains(.cancelled) {
-                swipeWasCancelled = true
-            }
-
-            if isComplete {
-                didCompleteSwipe = true
-                stop.pointee = true
-
-                let shouldCommit = !swipeWasCancelled && latestProgress >= self.interactiveCompletionThreshold
-                self.completeInteractiveTransition(committed: shouldCommit)
-            }
-        }
-    }
-
-    func beginInteractiveTransition(direction: Direction) {
+    func beginSwipeGesture(direction: NavigationStackDirection) -> Bool {
         guard activeTransition == nil else {
-            return
+            return false
         }
 
         let fromViewController: NSViewController
@@ -540,17 +481,17 @@ private extension NavigationStackController {
 
         switch direction {
         case .push:
-            return
+            return false
         case .back:
             guard viewControllers.count > 1 else {
-                return
+                return false
             }
             fromViewController = viewControllers[viewControllers.count - 1]
             toViewController = viewControllers[viewControllers.count - 2]
             operation = .back
         case .forward:
             guard let forwardViewController = forwardViewControllers.last, let topViewController else {
-                return
+                return false
             }
             fromViewController = topViewController
             toViewController = forwardViewController
@@ -562,18 +503,23 @@ private extension NavigationStackController {
         let transition = Transition(from: fromViewController, to: toViewController, direction: direction, operation: operation)
         activeTransition = transition
         prepareTransition(transition)
+        return true
     }
 
-    func completeInteractiveTransition(committed: Bool) {
-        guard let transition = activeTransition, !finishingInteractiveSwipe else {
+    func handleSwipeGesture(progress: CGFloat) {
+        activeTransition?.apply(progress: progress, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: false)
+    }
+
+    func endSwipeGesture(committed: Bool, duration: TimeInterval, completion: @escaping @MainActor () -> Void) {
+        guard let transition = activeTransition else {
+            completion()
             return
         }
 
-        finishingInteractiveSwipe = true
         let targetProgress: CGFloat = committed ? 1 : 0
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = transitionDuration * 0.7
+            context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: committed ? .easeOut : .easeInEaseOut)
             transition.apply(progress: targetProgress, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: true)
         } completionHandler: { [weak self] in
@@ -582,10 +528,10 @@ private extension NavigationStackController {
                     return
                 }
 
-                self.finishingInteractiveSwipe = false
                 self.finishTransition(transition, committed: committed, commit: {
                     self.commitStackMutation(for: transition)
                 }, animated: true)
+                completion()
             }
         }
     }

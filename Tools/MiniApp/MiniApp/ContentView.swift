@@ -180,7 +180,7 @@ private final class DemoNavigationHostController: NSViewController, NavigationSt
         navigationController = NavigationStackController(rootViewController: rootViewController)
         navigationController.delegate = self
         navigationController.transitionDuration = 0.22
-        navigationController.interactiveCompletionThreshold = 0.42
+        navigationController.maximumSwipeCompletionThreshold = 0.42
 
         addChild(navigationController)
         view.addSubview(navigationController.view)
