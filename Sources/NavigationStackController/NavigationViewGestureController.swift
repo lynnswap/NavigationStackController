@@ -3,7 +3,6 @@ import AppKit
 @MainActor
 final class NavigationViewGestureController {
     private weak var navigationController: NavigationStackController?
-    private let pendingSwipeTracker = NavigationPendingSwipeTracker()
     private lazy var swipeProgressTracker = NavigationSwipeProgressTracker(viewGestureController: self)
 
     init(navigationController: NavigationStackController) {
@@ -16,26 +15,18 @@ final class NavigationViewGestureController {
         }
 
         if swipeProgressTracker.isActive {
-            return true
+            return swipeProgressTracker.handleScrollWheel(event)
         }
 
         guard navigationController.allowsBackForwardNavigationGestures, event.hasPreciseScrollingDeltas, NSEvent.isSwipeTrackingFromScrollEventsEnabled else {
-            pendingSwipeTracker.reset()
             return false
         }
 
-        switch pendingSwipeTracker.handle(event: event) {
-        case .pending, .cancel:
+        guard navigationController.canGoBack || navigationController.canGoForward else {
             return false
-        case .start(let horizontalDelta):
-            let direction = navigationController.navigationDirection(forHorizontalDelta: horizontalDelta)
-            guard navigationController.canBeginSwipeGesture(in: direction) else {
-                return false
-            }
-
-            swipeProgressTracker.track(event: event, direction: direction)
-            return true
         }
+
+        return swipeProgressTracker.handleScrollWheel(event)
     }
 
     func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
@@ -45,6 +36,7 @@ final class NavigationViewGestureController {
 
         return axis == .horizontal
             && navigationController.allowsBackForwardNavigationGestures
+            && NSEvent.isSwipeTrackingFromScrollEventsEnabled
             && (navigationController.canGoBack || navigationController.canGoForward)
     }
 
@@ -63,6 +55,18 @@ final class NavigationViewGestureController {
         case .forward:
             return isLeftToRight ? -1 : 1
         }
+    }
+
+    func navigationDirection(forSwipeGestureAmount amount: CGFloat) -> NavigationStackDirection? {
+        if amount > 0 {
+            return progressSign(for: .back) > 0 ? .back : .forward
+        }
+
+        if amount < 0 {
+            return progressSign(for: .back) < 0 ? .back : .forward
+        }
+
+        return nil
     }
 
     var totalSwipeDistance: CGFloat {
@@ -134,68 +138,6 @@ struct NavigationSwipeStartClassifier {
     }
 }
 
-struct NavigationSwipePhaseDecision: Equatable {
-    let shouldFinish: Bool
-    let isForcedCancellation: Bool
-
-    init(phase: NSEvent.Phase, isComplete: Bool) {
-        let didCancel = phase.contains(.cancelled)
-        shouldFinish = isComplete || didCancel || phase.contains(.ended)
-        isForcedCancellation = didCancel
-    }
-}
-
-@MainActor
-private final class NavigationPendingSwipeTracker {
-    enum Decision {
-        case pending
-        case start(horizontalDelta: CGFloat)
-        case cancel
-    }
-
-    private var cumulativeDeltaX: CGFloat = 0
-    private var cumulativeDeltaY: CGFloat = 0
-    private var isTracking = false
-    private let classifier = NavigationSwipeStartClassifier()
-
-    func handle(event: NSEvent) -> Decision {
-        if event.phase.contains(.began) {
-            reset()
-            isTracking = true
-        }
-
-        guard isTracking else {
-            return .cancel
-        }
-
-        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
-            reset()
-            return .cancel
-        }
-
-        cumulativeDeltaX += event.scrollingDeltaX
-        cumulativeDeltaY += event.scrollingDeltaY
-
-        switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
-        case .pending:
-            return .pending
-        case .start:
-            let horizontalDelta = cumulativeDeltaX
-            reset()
-            return .start(horizontalDelta: horizontalDelta)
-        case .cancel:
-            reset()
-            return .cancel
-        }
-    }
-
-    func reset() {
-        cumulativeDeltaX = 0
-        cumulativeDeltaY = 0
-        isTracking = false
-    }
-}
-
 @MainActor
 private final class NavigationSwipeProgressTracker {
     private enum State {
@@ -212,11 +154,15 @@ private final class NavigationSwipeProgressTracker {
 
     private weak var viewGestureController: NavigationViewGestureController?
     private var state = State.none
+    private var direction: NavigationStackDirection?
+    private var cumulativeDeltaX: CGFloat = 0
+    private var cumulativeDeltaY: CGFloat = 0
     private var progress: CGFloat = 0
     private var averageVelocity: CGFloat = 0
     private var velocitySamples: [VelocitySample] = []
     private var forceCancelled = false
 
+    private let classifier = NavigationSwipeStartClassifier()
     private let velocitySampleWindow: TimeInterval = 0.12
     private let minimumAnimationVelocity: CGFloat = 3.0
 
@@ -228,67 +174,61 @@ private final class NavigationSwipeProgressTracker {
         state != .none
     }
 
-    func track(event: NSEvent, direction: NavigationStackDirection) {
-        guard state == .none, let viewGestureController else {
-            return
+    func handleScrollWheel(_ event: NSEvent) -> Bool {
+        guard let viewGestureController else {
+            return false
         }
 
-        state = .pending
-        progress = 0
-        averageVelocity = 0
-        velocitySamples.removeAll()
-        forceCancelled = false
+        if state == .animating {
+            return true
+        }
 
-        let sign = viewGestureController.progressSign(for: direction)
-        let minProgress: CGFloat = sign < 0 ? -1 : 0
-        let maxProgress: CGFloat = sign > 0 ? 1 : 0
-        var didCompleteSwipe = false
+        if event.phase.contains(.mayBegin) || event.phase.contains(.began) {
+            reset()
+            state = .pending
+        }
 
-        unsafe event.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount], dampenAmountThresholdMin: minProgress, max: maxProgress) { [weak self] amount, phase, isComplete, stop in
-            guard let self, let viewGestureController = self.viewGestureController else {
-                unsafe stop.pointee = true
-                return
-            }
+        guard state != .none else {
+            return false
+        }
 
-            guard !didCompleteSwipe else {
-                unsafe stop.pointee = true
-                return
-            }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            let wasSwiping = state == .swiping
+            finishSwipe(forcedCancelled: event.phase.contains(.cancelled))
+            return wasSwiping
+        }
 
-            let progress = min(max(amount * sign, 0), 1)
+        cumulativeDeltaX += event.scrollingDeltaX
+        cumulativeDeltaY += event.scrollingDeltaY
 
-            if phase.contains(.began), self.state == .pending {
-                guard viewGestureController.beginSwipeGesture(direction: direction) else {
-                    unsafe stop.pointee = true
-                    self.reset()
-                    return
+        if state == .pending {
+            switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
+            case .pending:
+                return false
+            case .cancel:
+                reset()
+                return false
+            case .start:
+                guard let direction = viewGestureController.navigationDirection(forSwipeGestureAmount: cumulativeDeltaX),
+                      viewGestureController.beginSwipeGesture(direction: direction) else {
+                    reset()
+                    return false
                 }
-                self.state = .swiping
-            } else if self.state == .pending, progress > 0 {
-                guard viewGestureController.beginSwipeGesture(direction: direction) else {
-                    unsafe stop.pointee = true
-                    self.reset()
-                    return
-                }
-                self.state = .swiping
-            }
 
-            if self.state == .swiping {
-                self.updateProgress(progress)
-                viewGestureController.handleSwipeGesture(progress: progress)
-            }
-
-            let phaseDecision = NavigationSwipePhaseDecision(phase: phase, isComplete: isComplete)
-            if phaseDecision.isForcedCancellation {
-                self.forceCancelled = true
-            }
-
-            if phaseDecision.shouldFinish {
-                didCompleteSwipe = true
-                unsafe stop.pointee = true
-                self.finishSwipe()
+                self.direction = direction
+                state = .swiping
             }
         }
+
+        guard state == .swiping, let direction else {
+            return true
+        }
+
+        let signedDistance = cumulativeDeltaX * viewGestureController.progressSign(for: direction)
+        let progress = min(max(signedDistance / viewGestureController.totalSwipeDistance, 0), 1)
+        updateProgress(progress)
+        viewGestureController.handleSwipeGesture(progress: progress)
+        return true
     }
 
     private func updateProgress(_ newProgress: CGFloat) {
@@ -306,7 +246,9 @@ private final class NavigationSwipeProgressTracker {
         averageVelocity = (lastSample.progress - firstSample.progress) / (lastSample.time - firstSample.time)
     }
 
-    private func finishSwipe() {
+    private func finishSwipe(forcedCancelled: Bool) {
+        forceCancelled = forceCancelled || forcedCancelled
+
         guard state == .swiping, let viewGestureController else {
             reset()
             return
@@ -345,6 +287,9 @@ private final class NavigationSwipeProgressTracker {
 
     private func reset() {
         state = .none
+        direction = nil
+        cumulativeDeltaX = 0
+        cumulativeDeltaY = 0
         progress = 0
         averageVelocity = 0
         velocitySamples.removeAll()
