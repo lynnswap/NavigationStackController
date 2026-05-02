@@ -87,8 +87,96 @@ import Testing
     #expect(navigationController.topViewController === viewControllers[3])
 }
 
+@MainActor
+@Test func multipleBacksExposeForwardHistoryInNavigationOrder() {
+    let viewControllers = (1...4).map { _ in TestViewController() }
+    let navigationController = NavigationStackController(rootViewController: viewControllers[0])
+
+    for viewController in viewControllers.dropFirst() {
+        navigationController.pushViewController(viewController, animated: false)
+    }
+
+    #expect(navigationController.goBack(animated: false) === viewControllers[3])
+    #expect(navigationController.goBack(animated: false) === viewControllers[2])
+    #expect(identifiers(navigationController.forwardViewControllers) == identifiers([viewControllers[2], viewControllers[3]]))
+    #expect(navigationController.goForward(animated: false) === viewControllers[2])
+}
+
+@MainActor
+@Test func popToRootMovesPoppedControllersIntoForwardHistoryInNavigationOrder() {
+    let viewControllers = (1...4).map { _ in TestViewController() }
+    let navigationController = NavigationStackController(rootViewController: viewControllers[0])
+
+    for viewController in viewControllers.dropFirst() {
+        navigationController.pushViewController(viewController, animated: false)
+    }
+
+    let poppedViewControllers = navigationController.popToRootViewController(animated: false)
+
+    #expect(identifiers(poppedViewControllers) == identifiers(Array(viewControllers[1...3])))
+    #expect(identifiers(navigationController.forwardViewControllers) == identifiers(Array(viewControllers[1...3])))
+    #expect(navigationController.goForward(animated: false) === viewControllers[1])
+}
+
+@MainActor
+@Test func setViewControllersClearsForwardHistoryAndReconcilesChildren() {
+    let rootViewController = TestViewController()
+    let pushedViewController = TestViewController()
+    let replacementRootViewController = TestViewController()
+    let replacementTopViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+
+    navigationController.pushViewController(pushedViewController, animated: false)
+    navigationController.goBack(animated: false)
+    navigationController.setViewControllers([replacementRootViewController, replacementTopViewController], animated: false)
+
+    #expect(navigationController.forwardViewControllers.isEmpty)
+    #expect(navigationController.topViewController === replacementTopViewController)
+    #expect(identifiers(navigationController.children) == identifiers([replacementRootViewController, replacementTopViewController]))
+}
+
+@MainActor
+@Test func rightToLeftBackTransitionReversesFrameOffsets() {
+    let fromViewController = TestViewController()
+    let toViewController = TestViewController()
+    let transition = NavigationStackController.Transition(
+        from: fromViewController,
+        to: toViewController,
+        direction: .back,
+        operation: .back
+    )
+
+    transition.apply(
+        progress: 0.25,
+        in: NSRect(x: 0, y: 0, width: 200, height: 100),
+        parallaxFactor: 0.25,
+        layoutDirection: .rightToLeft,
+        animated: false
+    )
+
+    #expect(isApproximatelyEqual(fromViewController.view.frame.origin.x, -50))
+    #expect(isApproximatelyEqual(toViewController.view.frame.origin.x, 37.5))
+}
+
+@Test func swipeStartClassifierRequiresHorizontalThresholdAndHysteresis() {
+    let classifier = NavigationSwipeStartClassifier(minimumHorizontalDistance: 10, verticalHysteresis: 1.2)
+
+    #expect(classifier.decision(deltaX: 9, deltaY: 0) == .pending)
+    #expect(classifier.decision(deltaX: 12, deltaY: 11) == .pending)
+    #expect(classifier.decision(deltaX: 12, deltaY: 4) == .start)
+    #expect(classifier.decision(deltaX: 4, deltaY: 12) == .cancel)
+}
+
 private final class TestViewController: NSViewController {
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
     }
+}
+
+private func identifiers(_ viewControllers: [NSViewController]) -> [ObjectIdentifier] {
+    viewControllers.map(ObjectIdentifier.init)
+}
+
+private func isApproximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat, tolerance: CGFloat = 0.001) -> Bool {
+    abs(lhs - rhs) <= tolerance
 }

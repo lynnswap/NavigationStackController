@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class NavigationViewGestureController {
     private weak var navigationController: NavigationStackController?
+    private let pendingSwipeTracker = NavigationPendingSwipeTracker()
     private lazy var swipeProgressTracker = NavigationSwipeProgressTracker(viewGestureController: self)
 
     init(navigationController: NavigationStackController) {
@@ -19,20 +20,22 @@ final class NavigationViewGestureController {
         }
 
         guard navigationController.allowsBackForwardNavigationGestures, event.hasPreciseScrollingDeltas, NSEvent.isSwipeTrackingFromScrollEventsEnabled else {
+            pendingSwipeTracker.reset()
             return false
         }
 
-        guard event.phase.contains(.began), abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else {
+        switch pendingSwipeTracker.handle(event: event) {
+        case .pending, .cancel:
             return false
-        }
+        case .start(let horizontalDelta):
+            let direction = navigationController.navigationDirection(forHorizontalDelta: horizontalDelta)
+            guard navigationController.canBeginSwipeGesture(in: direction) else {
+                return false
+            }
 
-        let direction = navigationController.navigationDirection(forHorizontalDelta: event.scrollingDeltaX)
-        guard navigationController.canBeginSwipeGesture(in: direction) else {
-            return false
+            swipeProgressTracker.track(event: event, direction: direction)
+            return true
         }
-
-        swipeProgressTracker.track(event: event, direction: direction)
-        return true
     }
 
     func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
@@ -102,6 +105,83 @@ final class NavigationViewGestureController {
         }
 
         navigationController.endSwipeGesture(committed: committed, duration: duration, completion: completion)
+    }
+}
+
+struct NavigationSwipeStartClassifier {
+    enum Decision: Equatable {
+        case pending
+        case start
+        case cancel
+    }
+
+    var minimumHorizontalDistance: CGFloat = 10
+    var verticalHysteresis: CGFloat = 1.2
+
+    func decision(deltaX: CGFloat, deltaY: CGFloat) -> Decision {
+        let horizontalDistance = abs(deltaX)
+        let verticalDistance = abs(deltaY)
+
+        if horizontalDistance >= minimumHorizontalDistance, horizontalDistance > verticalDistance * verticalHysteresis {
+            return .start
+        }
+
+        if verticalDistance >= minimumHorizontalDistance, verticalDistance > horizontalDistance * verticalHysteresis {
+            return .cancel
+        }
+
+        return .pending
+    }
+}
+
+@MainActor
+private final class NavigationPendingSwipeTracker {
+    enum Decision {
+        case pending
+        case start(horizontalDelta: CGFloat)
+        case cancel
+    }
+
+    private var cumulativeDeltaX: CGFloat = 0
+    private var cumulativeDeltaY: CGFloat = 0
+    private var isTracking = false
+    private let classifier = NavigationSwipeStartClassifier()
+
+    func handle(event: NSEvent) -> Decision {
+        if event.phase.contains(.began) {
+            reset()
+            isTracking = true
+        }
+
+        guard isTracking else {
+            return .cancel
+        }
+
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            reset()
+            return .cancel
+        }
+
+        cumulativeDeltaX += event.scrollingDeltaX
+        cumulativeDeltaY += event.scrollingDeltaY
+
+        switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
+        case .pending:
+            return .pending
+        case .start:
+            let horizontalDelta = cumulativeDeltaX
+            reset()
+            return .start(horizontalDelta: horizontalDelta)
+        case .cancel:
+            reset()
+            return .cancel
+        }
+    }
+
+    func reset() {
+        cumulativeDeltaX = 0
+        cumulativeDeltaY = 0
+        isTracking = false
     }
 }
 

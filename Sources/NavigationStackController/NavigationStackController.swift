@@ -67,10 +67,12 @@ public final class NavigationStackController: NSViewController {
     /// The last element is the current top view controller.
     public private(set) var viewControllers: [NSViewController] = []
 
-    /// The forward-history stack.
+    /// The forward-history list.
     ///
-    /// The last element is the next view controller that ``goForward(animated:)`` restores.
-    public private(set) var forwardViewControllers: [NSViewController] = []
+    /// The first element is the next view controller that ``goForward(animated:)`` restores.
+    public var forwardViewControllers: [NSViewController] {
+        Array(forwardViewControllerStack.reversed())
+    }
 
     /// A Boolean value that determines whether horizontal trackpad swipes can navigate back and forward.
     public var allowsBackForwardNavigationGestures = true
@@ -123,13 +125,14 @@ public final class NavigationStackController: NSViewController {
 
     /// A Boolean value that indicates whether the controller can move forward in history.
     public var canGoForward: Bool {
-        !forwardViewControllers.isEmpty
+        !forwardViewControllerStack.isEmpty
     }
 
     private var containerView: NavigationStackContainerView {
         view as! NavigationStackContainerView
     }
 
+    private var forwardViewControllerStack: [NSViewController] = []
     private var activeTransition: Transition?
     private lazy var viewGestureController = NavigationViewGestureController(navigationController: self)
 
@@ -191,7 +194,7 @@ public final class NavigationStackController: NSViewController {
         let oldTopViewController = topViewController
         let newTopViewController = newViewControllers.last
 
-        forwardViewControllers.removeAll()
+        forwardViewControllerStack.removeAll()
         viewControllers = newViewControllers
         reconcileChildViewControllers(keeping: newViewControllers)
 
@@ -220,7 +223,7 @@ public final class NavigationStackController: NSViewController {
         }
 
         let fromViewController = topViewController
-        forwardViewControllers.removeAll()
+        forwardViewControllerStack.removeAll()
         adopt(viewController)
         viewControllers.append(viewController)
 
@@ -264,7 +267,7 @@ public final class NavigationStackController: NSViewController {
         let rootViewController = viewControllers[0]
         let fromViewController = viewControllers.last
 
-        forwardViewControllers.append(contentsOf: poppedViewControllers.reversed())
+        forwardViewControllerStack.append(contentsOf: poppedViewControllers.reversed())
         viewControllers = [rootViewController]
 
         guard isViewLoaded else {
@@ -327,7 +330,7 @@ public final class NavigationStackController: NSViewController {
         }
 
         let outgoingViewController = viewControllers[viewControllers.count - 1]
-        let incomingViewController = forwardViewControllers[forwardViewControllers.count - 1]
+        let incomingViewController = forwardViewControllerStack[forwardViewControllerStack.count - 1]
 
         let commit: @MainActor @Sendable () -> Void = { [weak self] in
             self?.commitForwardTransition(from: outgoingViewController, to: incomingViewController)
@@ -358,7 +361,7 @@ public final class NavigationStackController: NSViewController {
 
     fileprivate func layoutContentViews() {
         if let activeTransition {
-            activeTransition.layout(in: containerView.bounds, parallaxFactor: parallaxFactor)
+            activeTransition.layout(in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection)
             return
         }
 
@@ -390,14 +393,15 @@ extension NavigationStackController {
             self.operation = operation
         }
 
-        func layout(in bounds: NSRect, parallaxFactor: CGFloat) {
-            apply(progress: progress, in: bounds, parallaxFactor: parallaxFactor, animated: false)
+        func layout(in bounds: NSRect, parallaxFactor: CGFloat, layoutDirection: NSUserInterfaceLayoutDirection) {
+            apply(progress: progress, in: bounds, parallaxFactor: parallaxFactor, layoutDirection: layoutDirection, animated: false)
         }
 
-        func apply(progress rawProgress: CGFloat, in bounds: NSRect, parallaxFactor: CGFloat, animated: Bool) {
+        func apply(progress rawProgress: CGFloat, in bounds: NSRect, parallaxFactor: CGFloat, layoutDirection: NSUserInterfaceLayoutDirection, animated: Bool) {
             progress = min(max(rawProgress, 0), 1)
 
             let width = max(bounds.width, 1)
+            let layoutSign: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
             let fromView = fromViewController.view
             let toView = toViewController.view
             var fromFrame = bounds
@@ -405,14 +409,14 @@ extension NavigationStackController {
 
             switch direction {
             case .push:
-                fromFrame.origin.x = -width * parallaxFactor * progress
-                toFrame.origin.x = width * (1 - progress)
+                fromFrame.origin.x = -layoutSign * width * parallaxFactor * progress
+                toFrame.origin.x = layoutSign * width * (1 - progress)
             case .back:
-                fromFrame.origin.x = width * progress
-                toFrame.origin.x = -width * parallaxFactor * (1 - progress)
+                fromFrame.origin.x = layoutSign * width * progress
+                toFrame.origin.x = -layoutSign * width * parallaxFactor * (1 - progress)
             case .forward:
-                fromFrame.origin.x = -width * progress
-                toFrame.origin.x = width * (1 - progress)
+                fromFrame.origin.x = -layoutSign * width * progress
+                toFrame.origin.x = layoutSign * width * (1 - progress)
             }
 
             if animated {
@@ -492,7 +496,7 @@ extension NavigationStackController {
             containerView.addSubview(fromView, positioned: .above, relativeTo: toView)
         }
 
-        transition.apply(progress: 0, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: false)
+        transition.apply(progress: 0, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: false)
     }
 
     func runTransition(from fromViewController: NSViewController, to toViewController: NSViewController, direction: NavigationStackDirection, operation: NavigationStackOperation, animated: Bool, commit: @escaping @MainActor @Sendable () -> Void) {
@@ -503,7 +507,7 @@ extension NavigationStackController {
         prepareTransition(transition)
 
         guard animated else {
-            transition.apply(progress: 1, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: false)
+            transition.apply(progress: 1, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: false)
             finishTransition(transition, committed: true, commit: commit, animated: false)
             return
         }
@@ -511,7 +515,7 @@ extension NavigationStackController {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = transitionDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            transition.apply(progress: 1, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: true)
+            transition.apply(progress: 1, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: true)
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else {
@@ -558,15 +562,15 @@ extension NavigationStackController {
         }
 
         let removedViewController = viewControllers.removeLast()
-        forwardViewControllers.append(removedViewController)
+        forwardViewControllerStack.append(removedViewController)
     }
 
     func commitForwardTransition(from outgoingViewController: NSViewController, to incomingViewController: NSViewController) {
-        guard topViewController === outgoingViewController, forwardViewControllers.last === incomingViewController else {
+        guard topViewController === outgoingViewController, forwardViewControllerStack.last === incomingViewController else {
             return
         }
 
-        let restoredViewController = forwardViewControllers.removeLast()
+        let restoredViewController = forwardViewControllerStack.removeLast()
         viewControllers.append(restoredViewController)
     }
 
@@ -611,7 +615,7 @@ extension NavigationStackController {
             toViewController = viewControllers[viewControllers.count - 2]
             operation = .back
         case .forward:
-            guard let forwardViewController = forwardViewControllers.last, let topViewController else {
+            guard let forwardViewController = forwardViewControllerStack.last, let topViewController else {
                 return false
             }
             fromViewController = topViewController
@@ -628,7 +632,7 @@ extension NavigationStackController {
     }
 
     func handleSwipeGesture(progress: CGFloat) {
-        activeTransition?.apply(progress: progress, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: false)
+        activeTransition?.apply(progress: progress, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: false)
     }
 
     func endSwipeGesture(committed: Bool, duration: TimeInterval, completion: @escaping @MainActor () -> Void) {
@@ -642,7 +646,7 @@ extension NavigationStackController {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
             context.timingFunction = CAMediaTimingFunction(name: committed ? .easeOut : .easeInEaseOut)
-            transition.apply(progress: targetProgress, in: containerView.bounds, parallaxFactor: parallaxFactor, animated: true)
+            transition.apply(progress: targetProgress, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: true)
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else {
