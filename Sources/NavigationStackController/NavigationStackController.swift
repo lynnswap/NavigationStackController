@@ -365,7 +365,7 @@ public final class NavigationStackController: NSViewController {
             return
         }
 
-        guard let topView = topViewController?.view, unsafe topView.superview === containerView else {
+        guard let topView = topViewController?.view, containerView.subviews.contains(where: { $0 === topView }) else {
             return
         }
 
@@ -683,6 +683,10 @@ private final class NavigationStackContainerView: NSView {
     }
 
     override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
+        navigationController?.shouldForwardScrollEventsForSwipeTracking(on: axis) ?? false
+    }
+
+    override func wantsForwardedScrollEvents(for axis: NSEvent.GestureAxis) -> Bool {
         navigationController?.shouldForwardScrollEventsForSwipeTracking(on: axis) ?? false
     }
 }

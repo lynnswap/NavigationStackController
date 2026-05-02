@@ -59,8 +59,8 @@ import Testing
     navigationController.pushViewController(pushedViewController, animated: false)
     _ = navigationController.view
 
-    #expect(unsafe pushedViewController.view.superview === navigationController.view)
-    #expect(unsafe rootViewController.view.superview == nil)
+    #expect(navigationController.view.subviews.contains { $0 === pushedViewController.view })
+    #expect(!navigationController.view.subviews.contains { $0 === rootViewController.view })
 }
 
 @MainActor

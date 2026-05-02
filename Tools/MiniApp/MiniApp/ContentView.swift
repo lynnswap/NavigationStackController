@@ -71,7 +71,7 @@ private final class DemoSplitViewController: NSSplitViewController, NSToolbarDel
     private func addPane(_ viewController: NSViewController) {
         let item = NSSplitViewItem(viewController: viewController)
         item.minimumThickness = 320
-        addSplitViewItem(item)
+        insertSplitViewItem(item, at: splitViewItems.count)
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
