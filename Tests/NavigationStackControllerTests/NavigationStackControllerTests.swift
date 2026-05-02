@@ -275,12 +275,12 @@ import Testing
 @Test func swipePhaseDecisionFinishesAtPhysicalGestureEnd() {
     #expect(NavigationSwipePhaseDecision(phase: .ended, isComplete: false).shouldFinish)
     #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).shouldFinish)
-    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).shouldFinish)
     #expect(NavigationSwipePhaseDecision(phase: [], isComplete: true).shouldFinish)
     #expect(!NavigationSwipePhaseDecision(phase: [], isComplete: false).shouldFinish)
+    #expect(!NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).shouldFinish)
     #expect(!NavigationSwipePhaseDecision(phase: .ended, isComplete: false).isForcedCancellation)
     #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).isForcedCancellation)
-    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).isForcedCancellation)
+    #expect(!NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).isForcedCancellation)
 }
 
 private final class TestViewController: NSViewController {

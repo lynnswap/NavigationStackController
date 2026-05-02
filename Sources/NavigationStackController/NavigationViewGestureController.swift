@@ -139,7 +139,7 @@ struct NavigationSwipePhaseDecision: Equatable {
     let isForcedCancellation: Bool
 
     init(phase: NSEvent.Phase, isComplete: Bool) {
-        let didCancel = phase.contains(.cancelled) || phase.contains(.mayBegin)
+        let didCancel = phase.contains(.cancelled)
         shouldFinish = isComplete || didCancel || phase.contains(.ended)
         isForcedCancellation = didCancel
     }
