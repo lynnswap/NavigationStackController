@@ -36,7 +36,7 @@ final class NavigationViewGestureController {
             return manualSwipeProgressTracker.handleScrollWheel(event)
         }
 
-        guard event.phase.contains(.mayBegin) || event.phase.contains(.began) else {
+        guard event.phase.contains(.began) else {
             return false
         }
 
