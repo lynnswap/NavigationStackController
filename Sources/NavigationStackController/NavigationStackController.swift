@@ -134,7 +134,12 @@ public final class NavigationStackController: NSViewController {
 
     private var forwardViewControllerStack: [NSViewController] = []
     private var activeTransition: Transition?
+    private var isNotifyingWillShow = false
     private lazy var viewGestureController = NavigationViewGestureController(navigationController: self)
+
+    private var canStartNavigation: Bool {
+        activeTransition == nil && !isNotifyingWillShow
+    }
 
     /// Creates a navigation stack controller with a root view controller.
     ///
@@ -187,7 +192,7 @@ public final class NavigationStackController: NSViewController {
     public func setViewControllers(_ newViewControllers: [NSViewController], animated: Bool) {
         precondition(!newViewControllers.isEmpty, "NavigationStackController requires at least one view controller.")
 
-        guard activeTransition == nil else {
+        guard canStartNavigation else {
             return
         }
 
@@ -218,7 +223,7 @@ public final class NavigationStackController: NSViewController {
     ///   - viewController: The view controller to push.
     ///   - animated: A Boolean value indicating whether to animate the transition.
     public func pushViewController(_ viewController: NSViewController, animated: Bool) {
-        guard activeTransition == nil else {
+        guard canStartNavigation else {
             return
         }
 
@@ -259,7 +264,7 @@ public final class NavigationStackController: NSViewController {
     /// - Returns: The popped view controllers, in their original stack order.
     @discardableResult
     public func popToRootViewController(animated: Bool) -> [NSViewController] {
-        guard viewControllers.count > 1, activeTransition == nil else {
+        guard viewControllers.count > 1, canStartNavigation else {
             return []
         }
 
@@ -291,7 +296,7 @@ public final class NavigationStackController: NSViewController {
     /// - Returns: The view controller that was moved into forward history, or `nil` if the controller cannot go back.
     @discardableResult
     public func goBack(animated: Bool) -> NSViewController? {
-        guard canGoBack, activeTransition == nil else {
+        guard canGoBack, canStartNavigation else {
             return nil
         }
 
@@ -325,7 +330,7 @@ public final class NavigationStackController: NSViewController {
     /// - Returns: The restored view controller, or `nil` if the controller cannot go forward.
     @discardableResult
     public func goForward(animated: Bool) -> NSViewController? {
-        guard canGoForward, activeTransition == nil else {
+        guard canGoForward, canStartNavigation else {
             return nil
         }
 
@@ -455,7 +460,7 @@ extension NavigationStackController {
             return
         }
 
-        delegate?.navigationStackController(self, willShow: topViewController, operation: operation, animated: animated)
+        notifyWillShow(topViewController, operation: operation, animated: animated)
 
         installOnly(topViewController)
 
@@ -473,6 +478,12 @@ extension NavigationStackController {
         contentView.autoresizingMask = [.width, .height]
         contentView.wantsLayer = true
         containerView.addSubview(contentView)
+    }
+
+    func notifyWillShow(_ viewController: NSViewController, operation: NavigationStackOperation, animated: Bool) {
+        isNotifyingWillShow = true
+        defer { isNotifyingWillShow = false }
+        delegate?.navigationStackController(self, willShow: viewController, operation: operation, animated: animated)
     }
 
     func prepareTransition(_ transition: Transition) {
@@ -500,10 +511,9 @@ extension NavigationStackController {
     }
 
     func runTransition(from fromViewController: NSViewController, to toViewController: NSViewController, direction: NavigationStackDirection, operation: NavigationStackOperation, animated: Bool, commit: @escaping @MainActor @Sendable () -> Void) {
-        delegate?.navigationStackController(self, willShow: toViewController, operation: operation, animated: animated)
-
         let transition = Transition(from: fromViewController, to: toViewController, direction: direction, operation: operation)
         activeTransition = transition
+        notifyWillShow(toViewController, operation: operation, animated: animated)
         prepareTransition(transition)
 
         guard animated else {
@@ -553,7 +563,7 @@ extension NavigationStackController {
     }
 
     func canBeginSwipeGesture(in direction: NavigationStackDirection) -> Bool {
-        activeTransition == nil && canNavigateInteractively(in: direction)
+        canStartNavigation && canNavigateInteractively(in: direction)
     }
 
     func commitBackTransition(from outgoingViewController: NSViewController, to incomingViewController: NSViewController) {
@@ -596,7 +606,7 @@ extension NavigationStackController {
     }
 
     func beginSwipeGesture(direction: NavigationStackDirection) -> Bool {
-        guard activeTransition == nil else {
+        guard canStartNavigation else {
             return false
         }
 
@@ -623,10 +633,9 @@ extension NavigationStackController {
             operation = .forward
         }
 
-        delegate?.navigationStackController(self, willShow: toViewController, operation: operation, animated: true)
-
         let transition = Transition(from: fromViewController, to: toViewController, direction: direction, operation: operation)
         activeTransition = transition
+        notifyWillShow(toViewController, operation: operation, animated: true)
         prepareTransition(transition)
         return true
     }

@@ -33,6 +33,27 @@ import Testing
 }
 
 @MainActor
+@Test func willShowReentrantNavigationIsIgnored() {
+    let rootViewController = TestViewController()
+    let pushedViewController = TestViewController()
+    let reentrantViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+    let delegate = ReentrantNavigationDelegate()
+
+    _ = navigationController.view
+    delegate.onWillShow = { controller in
+        controller.pushViewController(reentrantViewController, animated: false)
+    }
+    navigationController.delegate = delegate
+
+    navigationController.pushViewController(pushedViewController, animated: false)
+
+    #expect(navigationController.topViewController === pushedViewController)
+    #expect(identifiers(navigationController.viewControllers) == identifiers([rootViewController, pushedViewController]))
+    #expect(!navigationController.children.contains { $0 === reentrantViewController })
+}
+
+@MainActor
 @Test func backAndForwardMoveViewControllersBetweenStacks() {
     let rootViewController = TestViewController()
     let firstViewController = TestViewController()
@@ -173,6 +194,14 @@ import Testing
 private final class TestViewController: NSViewController {
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+    }
+}
+
+private final class ReentrantNavigationDelegate: NavigationStackControllerDelegate {
+    var onWillShow: ((NavigationStackController) -> Void)?
+
+    func navigationStackController(_ controller: NavigationStackController, willShow viewController: NSViewController, operation: NavigationStackOperation, animated: Bool) {
+        onWillShow?(controller)
     }
 }
 
