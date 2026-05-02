@@ -306,35 +306,17 @@ import Testing
 }
 
 @MainActor
-@Test func swipeTrackingThresholdsFollowAvailableHistory() {
+@Test func swipeDirectionFollowsLayoutDirection() {
     let rootViewController = TestViewController()
     let pushedViewController = TestViewController()
     let navigationController = NavigationStackController(rootViewController: rootViewController)
     let viewGestureController = NavigationViewGestureController(navigationController: navigationController)
 
     _ = navigationController.view
-    #expect(viewGestureController.swipeTrackingDampenThresholds == nil)
-
     navigationController.pushViewController(pushedViewController, animated: false)
-    #expect(viewGestureController.swipeTrackingDampenThresholds?.min == 0)
-    #expect(viewGestureController.swipeTrackingDampenThresholds?.max == 1)
+
     #expect(isBack(viewGestureController.navigationDirection(forSwipeGestureAmount: 0.1)))
     #expect(isForward(viewGestureController.navigationDirection(forSwipeGestureAmount: -0.1)))
-
-    navigationController.goBack(animated: false)
-    #expect(viewGestureController.swipeTrackingDampenThresholds?.min == -1)
-    #expect(viewGestureController.swipeTrackingDampenThresholds?.max == 0)
-}
-
-@Test func swipePhaseDecisionFinishesAtPhysicalGestureEnd() {
-    #expect(NavigationSwipePhaseDecision(phase: .ended, isComplete: false).shouldFinish)
-    #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).shouldFinish)
-    #expect(NavigationSwipePhaseDecision(phase: [], isComplete: true).shouldFinish)
-    #expect(!NavigationSwipePhaseDecision(phase: [], isComplete: false).shouldFinish)
-    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).shouldFinish)
-    #expect(!NavigationSwipePhaseDecision(phase: .ended, isComplete: false).isForcedCancellation)
-    #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).isForcedCancellation)
-    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).isForcedCancellation)
 }
 
 private final class TestViewController: NSViewController {

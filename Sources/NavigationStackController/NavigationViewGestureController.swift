@@ -3,10 +3,7 @@ import AppKit
 @MainActor
 final class NavigationViewGestureController {
     private weak var navigationController: NavigationStackController?
-    private let pendingSwipeTracker = NavigationPendingSwipeTracker()
     private lazy var swipeProgressTracker = NavigationSwipeProgressTracker(viewGestureController: self)
-    private lazy var manualSwipeProgressTracker = NavigationManualSwipeProgressTracker(viewGestureController: self)
-    private var needsManualSwipeTracking = false
 
     init(navigationController: NavigationStackController) {
         self.navigationController = navigationController
@@ -17,49 +14,19 @@ final class NavigationViewGestureController {
             return false
         }
 
-        if manualSwipeProgressTracker.isActive {
-            return manualSwipeProgressTracker.handleScrollWheel(event)
-        }
-
         if swipeProgressTracker.isActive {
-            return true
+            return swipeProgressTracker.handleScrollWheel(event)
         }
 
         guard navigationController.allowsBackForwardNavigationGestures, event.hasPreciseScrollingDeltas, NSEvent.isSwipeTrackingFromScrollEventsEnabled else {
-            pendingSwipeTracker.reset()
             return false
         }
 
-        guard let dampenThresholds = swipeTrackingDampenThresholds else {
-            pendingSwipeTracker.reset()
+        guard navigationController.canGoBack || navigationController.canGoForward else {
             return false
         }
 
-        if usesManualSwipeTracking {
-            pendingSwipeTracker.reset()
-            return manualSwipeProgressTracker.handleScrollWheel(event)
-        }
-
-        switch pendingSwipeTracker.handle(event: event) {
-        case .pending, .cancel:
-            return false
-        case .start(let horizontalDelta):
-            guard let direction = navigationDirection(forSwipeGestureAmount: horizontalDelta),
-                  navigationController.canBeginSwipeGesture(in: direction) else {
-                return false
-            }
-
-            swipeProgressTracker.track(event: event, direction: direction, dampenThresholds: dampenThresholds)
-            return true
-        }
-    }
-
-    private var usesManualSwipeTracking: Bool {
-        needsManualSwipeTracking || ProcessInfo.processInfo.environment["XCODE_RUNNING_FOR_PREVIEWS"] == "1"
-    }
-
-    func enableManualSwipeTracking() {
-        needsManualSwipeTracking = true
+        return swipeProgressTracker.handleScrollWheel(event)
     }
 
     func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
@@ -69,6 +36,7 @@ final class NavigationViewGestureController {
 
         return axis == .horizontal
             && navigationController.allowsBackForwardNavigationGestures
+            && NSEvent.isSwipeTrackingFromScrollEventsEnabled
             && (navigationController.canGoBack || navigationController.canGoForward)
     }
 
@@ -86,37 +54,6 @@ final class NavigationViewGestureController {
             return isLeftToRight ? 1 : -1
         case .forward:
             return isLeftToRight ? -1 : 1
-        }
-    }
-
-    var swipeTrackingDampenThresholds: (min: CGFloat, max: CGFloat)? {
-        guard let navigationController else {
-            return nil
-        }
-
-        var min: CGFloat = 0
-        var max: CGFloat = 0
-
-        if navigationController.canGoBack {
-            includeSwipeTrackingDirection(.back, min: &min, max: &max)
-        }
-
-        if navigationController.canGoForward {
-            includeSwipeTrackingDirection(.forward, min: &min, max: &max)
-        }
-
-        guard min < 0 || max > 0 else {
-            return nil
-        }
-
-        return (min, max)
-    }
-
-    private func includeSwipeTrackingDirection(_ direction: NavigationStackDirection, min: inout CGFloat, max: inout CGFloat) {
-        if progressSign(for: direction) < 0 {
-            min = -1
-        } else {
-            max = 1
         }
     }
 
@@ -201,70 +138,8 @@ struct NavigationSwipeStartClassifier {
     }
 }
 
-struct NavigationSwipePhaseDecision: Equatable {
-    let shouldFinish: Bool
-    let isForcedCancellation: Bool
-
-    init(phase: NSEvent.Phase, isComplete: Bool) {
-        let didCancel = phase.contains(.cancelled) || phase.contains(.mayBegin)
-        shouldFinish = isComplete || didCancel || phase.contains(.ended)
-        isForcedCancellation = didCancel
-    }
-}
-
 @MainActor
-private final class NavigationPendingSwipeTracker {
-    enum Decision {
-        case pending
-        case start(horizontalDelta: CGFloat)
-        case cancel
-    }
-
-    private var cumulativeDeltaX: CGFloat = 0
-    private var cumulativeDeltaY: CGFloat = 0
-    private var isTracking = false
-    private let classifier = NavigationSwipeStartClassifier()
-
-    func handle(event: NSEvent) -> Decision {
-        if event.phase.contains(.mayBegin) || event.phase.contains(.began) {
-            reset()
-            isTracking = true
-        }
-
-        guard isTracking else {
-            return .cancel
-        }
-
-        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
-            reset()
-            return .cancel
-        }
-
-        cumulativeDeltaX += event.scrollingDeltaX
-        cumulativeDeltaY += event.scrollingDeltaY
-
-        switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
-        case .pending:
-            return .pending
-        case .start:
-            let horizontalDelta = cumulativeDeltaX
-            reset()
-            return .start(horizontalDelta: horizontalDelta)
-        case .cancel:
-            reset()
-            return .cancel
-        }
-    }
-
-    func reset() {
-        cumulativeDeltaX = 0
-        cumulativeDeltaY = 0
-        isTracking = false
-    }
-}
-
-@MainActor
-private final class NavigationManualSwipeProgressTracker {
+private final class NavigationSwipeProgressTracker {
     private enum State {
         case none
         case pending
@@ -419,181 +294,5 @@ private final class NavigationManualSwipeProgressTracker {
         averageVelocity = 0
         velocitySamples.removeAll()
         forceCancelled = false
-    }
-}
-
-@MainActor
-private final class NavigationSwipeProgressTracker {
-    private enum State {
-        case none
-        case pending
-        case swiping
-        case animating
-    }
-
-    private struct VelocitySample {
-        let time: TimeInterval
-        let progress: CGFloat
-    }
-
-    private weak var viewGestureController: NavigationViewGestureController?
-    private var state = State.none
-    private var progress: CGFloat = 0
-    private var averageVelocity: CGFloat = 0
-    private var velocitySamples: [VelocitySample] = []
-    private var forceCancelled = false
-    private var trackingCallbackCount = 0
-    private var maximumObservedProgress: CGFloat = 0
-
-    private let velocitySampleWindow: TimeInterval = 0.12
-    private let minimumAnimationVelocity: CGFloat = 3.0
-    private let minimumBeginProgress: CGFloat = 0.02
-    private let stuckTrackingProgressThreshold: CGFloat = 0.02
-    private let stuckTrackingCallbackThreshold = 4
-
-    init(viewGestureController: NavigationViewGestureController) {
-        self.viewGestureController = viewGestureController
-    }
-
-    var isActive: Bool {
-        state != .none
-    }
-
-    func track(event: NSEvent, direction: NavigationStackDirection, dampenThresholds: (min: CGFloat, max: CGFloat)) {
-        guard state == .none, viewGestureController != nil else {
-            return
-        }
-
-        state = .pending
-        progress = 0
-        averageVelocity = 0
-        velocitySamples.removeAll()
-        forceCancelled = false
-        trackingCallbackCount = 0
-        maximumObservedProgress = 0
-
-        var didCompleteSwipe = false
-
-        unsafe event.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount], dampenAmountThresholdMin: dampenThresholds.min, max: dampenThresholds.max) { [weak self] amount, phase, isComplete, stop in
-            guard let self, let viewGestureController = self.viewGestureController else {
-                unsafe stop.pointee = true
-                return
-            }
-
-            guard !didCompleteSwipe else {
-                unsafe stop.pointee = true
-                return
-            }
-
-            trackingCallbackCount += 1
-            let phaseDecision = NavigationSwipePhaseDecision(phase: phase, isComplete: isComplete)
-            if phaseDecision.isForcedCancellation {
-                self.forceCancelled = true
-            }
-
-            let progress = min(max(amount * viewGestureController.progressSign(for: direction), 0), 1)
-            self.maximumObservedProgress = max(self.maximumObservedProgress, progress)
-
-            if self.state == .pending, progress >= self.minimumBeginProgress {
-                guard viewGestureController.beginSwipeGesture(direction: direction) else {
-                    unsafe stop.pointee = true
-                    self.reset()
-                    return
-                }
-                self.state = .swiping
-            }
-
-            guard self.state == .swiping else {
-                if phaseDecision.shouldFinish {
-                    didCompleteSwipe = true
-                    unsafe stop.pointee = true
-                    self.finishSwipe()
-                }
-                return
-            }
-
-            self.updateProgress(progress)
-            viewGestureController.handleSwipeGesture(progress: progress)
-
-            if phaseDecision.shouldFinish {
-                didCompleteSwipe = true
-                unsafe stop.pointee = true
-                self.finishSwipe()
-            }
-        }
-    }
-
-    private func updateProgress(_ newProgress: CGFloat) {
-        progress = newProgress
-
-        let now = CACurrentMediaTime()
-        velocitySamples.append(VelocitySample(time: now, progress: newProgress))
-        velocitySamples.removeAll { now - $0.time > velocitySampleWindow }
-
-        guard let firstSample = velocitySamples.first, let lastSample = velocitySamples.last, lastSample.time > firstSample.time else {
-            averageVelocity = 0
-            return
-        }
-
-        averageVelocity = (lastSample.progress - firstSample.progress) / (lastSample.time - firstSample.time)
-    }
-
-    private func finishSwipe() {
-        let shouldEnableManualTracking = forceCancelled
-            && maximumObservedProgress < stuckTrackingProgressThreshold
-            && trackingCallbackCount >= stuckTrackingCallbackThreshold
-
-        guard state == .swiping, let viewGestureController else {
-            if shouldEnableManualTracking {
-                viewGestureController?.enableManualSwipeTracking()
-            }
-            reset()
-            return
-        }
-
-        let cancelled = forceCancelled || shouldCancel()
-        let duration = animationDuration(cancelled: cancelled)
-
-        if shouldEnableManualTracking {
-            viewGestureController.enableManualSwipeTracking()
-        }
-
-        state = .animating
-
-        viewGestureController.endSwipeGesture(committed: !cancelled, duration: duration) { [weak self] in
-            self?.reset()
-        }
-    }
-
-    private func shouldCancel() -> Bool {
-        guard let viewGestureController else {
-            return true
-        }
-
-        let projectedProgress = progress + averageVelocity * viewGestureController.kineticProjectionDuration
-        return projectedProgress < viewGestureController.completionThreshold
-    }
-
-    private func animationDuration(cancelled: Bool) -> TimeInterval {
-        guard let viewGestureController else {
-            return 0.2
-        }
-
-        let targetProgress: CGFloat = cancelled ? 0 : 1
-        let remainingDistance = abs(targetProgress - progress)
-        let velocity = max(abs(averageVelocity), minimumAnimationVelocity)
-        let duration = TimeInterval(remainingDistance / velocity)
-
-        return min(max(duration, viewGestureController.minimumAnimationDuration), viewGestureController.maximumAnimationDuration)
-    }
-
-    private func reset() {
-        state = .none
-        progress = 0
-        averageVelocity = 0
-        velocitySamples.removeAll()
-        forceCancelled = false
-        trackingCallbackCount = 0
-        maximumObservedProgress = 0
     }
 }
