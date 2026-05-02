@@ -216,6 +216,31 @@ import Testing
 }
 
 @MainActor
+@Test func animatedSetViewControllersKeepsOutgoingControllerContainedDuringWillShow() {
+    let rootViewController = TestViewController()
+    let outgoingViewController = TestViewController()
+    let replacementRootViewController = TestViewController()
+    let replacementTopViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+    let delegate = ReentrantNavigationDelegate()
+    var observedChildren: [NSViewController] = []
+
+    navigationController.transitionDuration = 0
+    navigationController.pushViewController(outgoingViewController, animated: false)
+    _ = navigationController.view
+    delegate.onWillShow = { controller in
+        observedChildren = controller.children
+    }
+    navigationController.delegate = delegate
+
+    navigationController.setViewControllers([replacementRootViewController, replacementTopViewController], animated: true)
+
+    #expect(observedChildren.contains { $0 === outgoingViewController })
+    #expect(observedChildren.contains { $0 === replacementRootViewController })
+    #expect(observedChildren.contains { $0 === replacementTopViewController })
+}
+
+@MainActor
 @Test func rightToLeftBackTransitionReversesFrameOffsets() {
     let fromViewController = TestViewController()
     let toViewController = TestViewController()

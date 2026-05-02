@@ -201,17 +201,25 @@ public final class NavigationStackController: NSViewController {
 
         forwardViewControllerStack.removeAll()
         viewControllers = newViewControllers
-        reconcileChildViewControllers(keeping: newViewControllers)
 
         guard isViewLoaded else {
+            reconcileChildViewControllers(keeping: newViewControllers)
             return
         }
 
         if animated, let fromViewController = oldTopViewController, let toViewController = newTopViewController, fromViewController !== toViewController {
-            runTransition(from: fromViewController, to: toViewController, direction: .push, operation: .set, animated: true) { }
+            var transitionViewControllers = newViewControllers
+            if !transitionViewControllers.contains(where: { $0 === fromViewController }) {
+                transitionViewControllers.append(fromViewController)
+            }
+            reconcileChildViewControllers(keeping: transitionViewControllers)
+            runTransition(from: fromViewController, to: toViewController, direction: .push, operation: .set, animated: true) { [weak self] in
+                self?.reconcileChildViewControllers(keeping: newViewControllers)
+            }
             return
         }
 
+        reconcileChildViewControllers(keeping: newViewControllers)
         showTopViewController(operation: .set, animated: false)
     }
 
