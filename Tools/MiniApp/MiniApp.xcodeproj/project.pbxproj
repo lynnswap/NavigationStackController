@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		ABF73A912FA5E2B200627303 /* NavigationStackController in Frameworks */ = {isa = PBXBuildFile; productRef = ABF73A922FA5E2B200627303 /* NavigationStackController */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		ABF73A812FA5D6CE00627303 /* MiniApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MiniApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ABF73A912FA5E2B200627303 /* NavigationStackController in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = MiniApp;
 			packageProductDependencies = (
+				ABF73A922FA5E2B200627303 /* NavigationStackController */,
 			);
 			productName = MiniApp;
 			productReference = ABF73A812FA5D6CE00627303 /* MiniApp.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = ABF73A782FA5D6CE00627303;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				ABF73A902FA5E2B200627303 /* XCLocalSwiftPackageReference "../.." */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = ABF73A822FA5D6CE00627303 /* Products */;
 			projectDirPath = "";
@@ -184,6 +193,8 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_MEMORY_SAFETY = YES;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -238,6 +249,8 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_STRICT_MEMORY_SAFETY = YES;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -280,8 +293,9 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_MEMORY_SAFETY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Debug;
@@ -325,8 +339,9 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_MEMORY_SAFETY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				XROS_DEPLOYMENT_TARGET = 26.4;
 			};
 			name = Release;
@@ -353,6 +368,21 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		ABF73A902FA5E2B200627303 /* XCLocalSwiftPackageReference "../.." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		ABF73A922FA5E2B200627303 /* NavigationStackController */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ABF73A902FA5E2B200627303 /* XCLocalSwiftPackageReference "../.." */;
+			productName = NavigationStackController;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = ABF73A792FA5D6CE00627303 /* Project object */;
 }
