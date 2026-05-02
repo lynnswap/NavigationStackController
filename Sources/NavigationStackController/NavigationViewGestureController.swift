@@ -3,6 +3,7 @@ import AppKit
 @MainActor
 final class NavigationViewGestureController {
     private weak var navigationController: NavigationStackController?
+    private let pendingSwipeTracker = NavigationPendingSwipeTracker()
     private lazy var swipeProgressTracker = NavigationSwipeProgressTracker(viewGestureController: self)
     private lazy var manualSwipeProgressTracker = NavigationManualSwipeProgressTracker(viewGestureController: self)
     private var needsManualSwipeTracking = false
@@ -25,23 +26,32 @@ final class NavigationViewGestureController {
         }
 
         guard navigationController.allowsBackForwardNavigationGestures, event.hasPreciseScrollingDeltas, NSEvent.isSwipeTrackingFromScrollEventsEnabled else {
+            pendingSwipeTracker.reset()
             return false
         }
 
         guard let dampenThresholds = swipeTrackingDampenThresholds else {
+            pendingSwipeTracker.reset()
             return false
         }
 
         if usesManualSwipeTracking {
+            pendingSwipeTracker.reset()
             return manualSwipeProgressTracker.handleScrollWheel(event)
         }
 
-        guard event.phase.contains(.began) else {
+        switch pendingSwipeTracker.handle(event: event) {
+        case .pending, .cancel:
             return false
-        }
+        case .start(let horizontalDelta):
+            guard let direction = navigationDirection(forSwipeGestureAmount: horizontalDelta),
+                  navigationController.canBeginSwipeGesture(in: direction) else {
+                return false
+            }
 
-        swipeProgressTracker.track(event: event, dampenThresholds: dampenThresholds)
-        return true
+            swipeProgressTracker.track(event: event, direction: direction, dampenThresholds: dampenThresholds)
+            return true
+        }
     }
 
     private var usesManualSwipeTracking: Bool {
@@ -199,6 +209,57 @@ struct NavigationSwipePhaseDecision: Equatable {
         let didCancel = phase.contains(.cancelled) || phase.contains(.mayBegin)
         shouldFinish = isComplete || didCancel || phase.contains(.ended)
         isForcedCancellation = didCancel
+    }
+}
+
+@MainActor
+private final class NavigationPendingSwipeTracker {
+    enum Decision {
+        case pending
+        case start(horizontalDelta: CGFloat)
+        case cancel
+    }
+
+    private var cumulativeDeltaX: CGFloat = 0
+    private var cumulativeDeltaY: CGFloat = 0
+    private var isTracking = false
+    private let classifier = NavigationSwipeStartClassifier()
+
+    func handle(event: NSEvent) -> Decision {
+        if event.phase.contains(.mayBegin) || event.phase.contains(.began) {
+            reset()
+            isTracking = true
+        }
+
+        guard isTracking else {
+            return .cancel
+        }
+
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            reset()
+            return .cancel
+        }
+
+        cumulativeDeltaX += event.scrollingDeltaX
+        cumulativeDeltaY += event.scrollingDeltaY
+
+        switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
+        case .pending:
+            return .pending
+        case .start:
+            let horizontalDelta = cumulativeDeltaX
+            reset()
+            return .start(horizontalDelta: horizontalDelta)
+        case .cancel:
+            reset()
+            return .cancel
+        }
+    }
+
+    func reset() {
+        cumulativeDeltaX = 0
+        cumulativeDeltaY = 0
+        isTracking = false
     }
 }
 
@@ -398,7 +459,7 @@ private final class NavigationSwipeProgressTracker {
         state != .none
     }
 
-    func track(event: NSEvent, dampenThresholds: (min: CGFloat, max: CGFloat)) {
+    func track(event: NSEvent, direction: NavigationStackDirection, dampenThresholds: (min: CGFloat, max: CGFloat)) {
         guard state == .none, viewGestureController != nil else {
             return
         }
@@ -411,7 +472,6 @@ private final class NavigationSwipeProgressTracker {
         trackingCallbackCount = 0
         maximumObservedProgress = 0
 
-        var direction: NavigationStackDirection?
         var didCompleteSwipe = false
 
         unsafe event.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount], dampenAmountThresholdMin: dampenThresholds.min, max: dampenThresholds.max) { [weak self] amount, phase, isComplete, stop in
@@ -431,23 +491,19 @@ private final class NavigationSwipeProgressTracker {
                 self.forceCancelled = true
             }
 
-            let candidateDirection = viewGestureController.navigationDirection(forSwipeGestureAmount: amount)
-            let candidateProgress = candidateDirection.map { direction in
-                min(max(amount * viewGestureController.progressSign(for: direction), 0), 1)
-            } ?? 0
-            self.maximumObservedProgress = max(self.maximumObservedProgress, candidateProgress)
+            let progress = min(max(amount * viewGestureController.progressSign(for: direction), 0), 1)
+            self.maximumObservedProgress = max(self.maximumObservedProgress, progress)
 
-            if self.state == .pending, let candidateDirection, candidateProgress >= self.minimumBeginProgress {
-                guard viewGestureController.beginSwipeGesture(direction: candidateDirection) else {
+            if self.state == .pending, progress >= self.minimumBeginProgress {
+                guard viewGestureController.beginSwipeGesture(direction: direction) else {
                     unsafe stop.pointee = true
                     self.reset()
                     return
                 }
-                direction = candidateDirection
                 self.state = .swiping
             }
 
-            guard let direction else {
+            guard self.state == .swiping else {
                 if phaseDecision.shouldFinish {
                     didCompleteSwipe = true
                     unsafe stop.pointee = true
@@ -456,12 +512,8 @@ private final class NavigationSwipeProgressTracker {
                 return
             }
 
-            let progress = min(max(amount * viewGestureController.progressSign(for: direction), 0), 1)
-
-            if self.state == .swiping {
-                self.updateProgress(progress)
-                viewGestureController.handleSwipeGesture(progress: progress)
-            }
+            self.updateProgress(progress)
+            viewGestureController.handleSwipeGesture(progress: progress)
 
             if phaseDecision.shouldFinish {
                 didCompleteSwipe = true
