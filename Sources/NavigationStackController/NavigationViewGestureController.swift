@@ -134,6 +134,17 @@ struct NavigationSwipeStartClassifier {
     }
 }
 
+struct NavigationSwipePhaseDecision: Equatable {
+    let shouldFinish: Bool
+    let isForcedCancellation: Bool
+
+    init(phase: NSEvent.Phase, isComplete: Bool) {
+        let didCancel = phase.contains(.cancelled) || phase.contains(.mayBegin)
+        shouldFinish = isComplete || didCancel || phase.contains(.ended)
+        isForcedCancellation = didCancel
+    }
+}
+
 @MainActor
 private final class NavigationPendingSwipeTracker {
     enum Decision {
@@ -267,11 +278,12 @@ private final class NavigationSwipeProgressTracker {
                 viewGestureController.handleSwipeGesture(progress: progress)
             }
 
-            if phase.contains(.cancelled) {
+            let phaseDecision = NavigationSwipePhaseDecision(phase: phase, isComplete: isComplete)
+            if phaseDecision.isForcedCancellation {
                 self.forceCancelled = true
             }
 
-            if isComplete {
+            if phaseDecision.shouldFinish {
                 didCompleteSwipe = true
                 unsafe stop.pointee = true
                 self.finishSwipe()

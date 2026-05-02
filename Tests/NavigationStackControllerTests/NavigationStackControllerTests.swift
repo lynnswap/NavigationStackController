@@ -272,6 +272,17 @@ import Testing
     #expect(classifier.decision(deltaX: 4, deltaY: 12) == .cancel)
 }
 
+@Test func swipePhaseDecisionFinishesAtPhysicalGestureEnd() {
+    #expect(NavigationSwipePhaseDecision(phase: .ended, isComplete: false).shouldFinish)
+    #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).shouldFinish)
+    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).shouldFinish)
+    #expect(NavigationSwipePhaseDecision(phase: [], isComplete: true).shouldFinish)
+    #expect(!NavigationSwipePhaseDecision(phase: [], isComplete: false).shouldFinish)
+    #expect(!NavigationSwipePhaseDecision(phase: .ended, isComplete: false).isForcedCancellation)
+    #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).isForcedCancellation)
+    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).isForcedCancellation)
+}
+
 private final class TestViewController: NSViewController {
     override func loadView() {
         view = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
