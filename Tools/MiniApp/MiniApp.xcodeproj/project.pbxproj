@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		ABF73A912FA5E2B200627303 /* NavigationStackController in Frameworks */ = {isa = PBXBuildFile; productRef = ABF73A922FA5E2B200627303 /* NavigationStackController */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		ABF73A812FA5D6CE00627303 /* MiniApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MiniApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -23,6 +27,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ABF73A912FA5E2B200627303 /* NavigationStackController in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -65,6 +70,7 @@
 			);
 			name = MiniApp;
 			packageProductDependencies = (
+				ABF73A922FA5E2B200627303 /* NavigationStackController */,
 			);
 			productName = MiniApp;
 			productReference = ABF73A812FA5D6CE00627303 /* MiniApp.app */;
@@ -94,6 +100,9 @@
 			);
 			mainGroup = ABF73A782FA5D6CE00627303;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				ABF73A902FA5E2B200627303 /* XCLocalSwiftPackageReference "../.." */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = ABF73A822FA5D6CE00627303 /* Products */;
 			projectDirPath = "";
@@ -123,6 +132,21 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		ABF73A902FA5E2B200627303 /* XCLocalSwiftPackageReference "../.." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		ABF73A922FA5E2B200627303 /* NavigationStackController */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = ABF73A902FA5E2B200627303 /* XCLocalSwiftPackageReference "../.." */;
+			productName = NavigationStackController;
+		};
+/* End XCSwiftPackageProductDependency section */
 
 /* Begin XCBuildConfiguration section */
 		ABF73A8A2FA5D6CE00627303 /* Debug */ = {
