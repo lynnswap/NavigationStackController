@@ -305,15 +305,36 @@ import Testing
     #expect(classifier.decision(deltaX: 4, deltaY: 12) == .cancel)
 }
 
+@MainActor
+@Test func swipeTrackingThresholdsFollowAvailableHistory() {
+    let rootViewController = TestViewController()
+    let pushedViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+    let viewGestureController = NavigationViewGestureController(navigationController: navigationController)
+
+    _ = navigationController.view
+    #expect(viewGestureController.swipeTrackingDampenThresholds == nil)
+
+    navigationController.pushViewController(pushedViewController, animated: false)
+    #expect(viewGestureController.swipeTrackingDampenThresholds?.min == 0)
+    #expect(viewGestureController.swipeTrackingDampenThresholds?.max == 1)
+    #expect(isBack(viewGestureController.navigationDirection(forSwipeGestureAmount: 0.1)))
+    #expect(isForward(viewGestureController.navigationDirection(forSwipeGestureAmount: -0.1)))
+
+    navigationController.goBack(animated: false)
+    #expect(viewGestureController.swipeTrackingDampenThresholds?.min == -1)
+    #expect(viewGestureController.swipeTrackingDampenThresholds?.max == 0)
+}
+
 @Test func swipePhaseDecisionFinishesAtPhysicalGestureEnd() {
     #expect(NavigationSwipePhaseDecision(phase: .ended, isComplete: false).shouldFinish)
     #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).shouldFinish)
     #expect(NavigationSwipePhaseDecision(phase: [], isComplete: true).shouldFinish)
     #expect(!NavigationSwipePhaseDecision(phase: [], isComplete: false).shouldFinish)
-    #expect(!NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).shouldFinish)
+    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).shouldFinish)
     #expect(!NavigationSwipePhaseDecision(phase: .ended, isComplete: false).isForcedCancellation)
     #expect(NavigationSwipePhaseDecision(phase: .cancelled, isComplete: false).isForcedCancellation)
-    #expect(!NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).isForcedCancellation)
+    #expect(NavigationSwipePhaseDecision(phase: .mayBegin, isComplete: false).isForcedCancellation)
 }
 
 private final class TestViewController: NSViewController {
@@ -336,4 +357,28 @@ private func identifiers(_ viewControllers: [NSViewController]) -> [ObjectIdenti
 
 private func isApproximatelyEqual(_ lhs: CGFloat, _ rhs: CGFloat, tolerance: CGFloat = 0.001) -> Bool {
     abs(lhs - rhs) <= tolerance
+}
+
+private func isBack(_ direction: NavigationStackDirection?) -> Bool {
+    guard let direction else {
+        return false
+    }
+
+    if case .back = direction {
+        return true
+    }
+
+    return false
+}
+
+private func isForward(_ direction: NavigationStackDirection?) -> Bool {
+    guard let direction else {
+        return false
+    }
+
+    if case .forward = direction {
+        return true
+    }
+
+    return false
 }

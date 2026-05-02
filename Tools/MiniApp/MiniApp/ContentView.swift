@@ -319,5 +319,4 @@ private final class DemoClickablePageView: NSView {
 
 #Preview {
     ContentView()
-        .frame(minWidth: 900, minHeight: 520)
 }
