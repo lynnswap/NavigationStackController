@@ -40,10 +40,6 @@ final class NavigationViewGestureController {
             return false
         }
 
-        if let initialDirection = navigationDirection(forSwipeGestureAmount: event.scrollingDeltaX), !navigationController.canBeginSwipeGesture(in: initialDirection) {
-            return false
-        }
-
         swipeProgressTracker.track(event: event, dampenThresholds: dampenThresholds)
         return true
     }
@@ -261,8 +257,9 @@ private final class NavigationManualSwipeProgressTracker {
         }
 
         if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            let wasSwiping = state == .swiping
             finishSwipe(forcedCancelled: event.phase.contains(.cancelled))
-            return true
+            return wasSwiping
         }
 
         cumulativeDeltaX += event.scrollingDeltaX
@@ -271,7 +268,7 @@ private final class NavigationManualSwipeProgressTracker {
         if state == .pending {
             switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
             case .pending:
-                return true
+                return false
             case .cancel:
                 reset()
                 return false
@@ -389,6 +386,7 @@ private final class NavigationSwipeProgressTracker {
 
     private let velocitySampleWindow: TimeInterval = 0.12
     private let minimumAnimationVelocity: CGFloat = 3.0
+    private let minimumBeginProgress: CGFloat = 0.02
     private let stuckTrackingProgressThreshold: CGFloat = 0.02
     private let stuckTrackingCallbackThreshold = 4
 
@@ -433,8 +431,20 @@ private final class NavigationSwipeProgressTracker {
                 self.forceCancelled = true
             }
 
-            if direction == nil {
-                direction = viewGestureController.navigationDirection(forSwipeGestureAmount: amount)
+            let candidateDirection = viewGestureController.navigationDirection(forSwipeGestureAmount: amount)
+            let candidateProgress = candidateDirection.map { direction in
+                min(max(amount * viewGestureController.progressSign(for: direction), 0), 1)
+            } ?? 0
+            self.maximumObservedProgress = max(self.maximumObservedProgress, candidateProgress)
+
+            if self.state == .pending, let candidateDirection, candidateProgress >= self.minimumBeginProgress {
+                guard viewGestureController.beginSwipeGesture(direction: candidateDirection) else {
+                    unsafe stop.pointee = true
+                    self.reset()
+                    return
+                }
+                direction = candidateDirection
+                self.state = .swiping
             }
 
             guard let direction else {
@@ -447,16 +457,6 @@ private final class NavigationSwipeProgressTracker {
             }
 
             let progress = min(max(amount * viewGestureController.progressSign(for: direction), 0), 1)
-            self.maximumObservedProgress = max(self.maximumObservedProgress, progress)
-
-            if self.state == .pending, progress > 0 {
-                guard viewGestureController.beginSwipeGesture(direction: direction) else {
-                    unsafe stop.pointee = true
-                    self.reset()
-                    return
-                }
-                self.state = .swiping
-            }
 
             if self.state == .swiping {
                 self.updateProgress(progress)
@@ -487,7 +487,14 @@ private final class NavigationSwipeProgressTracker {
     }
 
     private func finishSwipe() {
+        let shouldEnableManualTracking = forceCancelled
+            && maximumObservedProgress < stuckTrackingProgressThreshold
+            && trackingCallbackCount >= stuckTrackingCallbackThreshold
+
         guard state == .swiping, let viewGestureController else {
+            if shouldEnableManualTracking {
+                viewGestureController?.enableManualSwipeTracking()
+            }
             reset()
             return
         }
@@ -495,7 +502,7 @@ private final class NavigationSwipeProgressTracker {
         let cancelled = forceCancelled || shouldCancel()
         let duration = animationDuration(cancelled: cancelled)
 
-        if forceCancelled, maximumObservedProgress < stuckTrackingProgressThreshold, trackingCallbackCount >= stuckTrackingCallbackThreshold {
+        if shouldEnableManualTracking {
             viewGestureController.enableManualSwipeTracking()
         }
 
