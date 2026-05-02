@@ -233,14 +233,14 @@ private final class NavigationSwipeProgressTracker {
         let maxProgress: CGFloat = sign > 0 ? 1 : 0
         var didCompleteSwipe = false
 
-        event.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount], dampenAmountThresholdMin: minProgress, max: maxProgress) { [weak self] amount, phase, isComplete, stop in
+        unsafe event.trackSwipeEvent(options: [.lockDirection, .clampGestureAmount], dampenAmountThresholdMin: minProgress, max: maxProgress) { [weak self] amount, phase, isComplete, stop in
             guard let self, let viewGestureController = self.viewGestureController else {
-                stop.pointee = true
+                unsafe stop.pointee = true
                 return
             }
 
             guard !didCompleteSwipe else {
-                stop.pointee = true
+                unsafe stop.pointee = true
                 return
             }
 
@@ -248,14 +248,14 @@ private final class NavigationSwipeProgressTracker {
 
             if phase.contains(.began), self.state == .pending {
                 guard viewGestureController.beginSwipeGesture(direction: direction) else {
-                    stop.pointee = true
+                    unsafe stop.pointee = true
                     self.reset()
                     return
                 }
                 self.state = .swiping
             } else if self.state == .pending, progress > 0 {
                 guard viewGestureController.beginSwipeGesture(direction: direction) else {
-                    stop.pointee = true
+                    unsafe stop.pointee = true
                     self.reset()
                     return
                 }
@@ -273,7 +273,7 @@ private final class NavigationSwipeProgressTracker {
 
             if isComplete {
                 didCompleteSwipe = true
-                stop.pointee = true
+                unsafe stop.pointee = true
                 self.finishSwipe()
             }
         }

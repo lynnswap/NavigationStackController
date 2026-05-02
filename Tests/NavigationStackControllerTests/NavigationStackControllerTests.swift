@@ -59,8 +59,8 @@ import Testing
     navigationController.pushViewController(pushedViewController, animated: false)
     _ = navigationController.view
 
-    #expect(pushedViewController.view.superview === navigationController.view)
-    #expect(rootViewController.view.superview == nil)
+    #expect(unsafe pushedViewController.view.superview === navigationController.view)
+    #expect(unsafe rootViewController.view.superview == nil)
 }
 
 @MainActor

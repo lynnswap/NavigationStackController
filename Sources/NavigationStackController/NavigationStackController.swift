@@ -365,7 +365,7 @@ public final class NavigationStackController: NSViewController {
             return
         }
 
-        guard let topView = topViewController?.view, topView.superview === containerView else {
+        guard let topView = topViewController?.view, unsafe topView.superview === containerView else {
             return
         }
 
