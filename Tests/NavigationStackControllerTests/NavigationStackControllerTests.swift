@@ -75,6 +75,62 @@ import Testing
 }
 
 @MainActor
+@Test func animatedBackUpdatesHistoryBeforeWillShow() {
+    let rootViewController = TestViewController()
+    let firstViewController = TestViewController()
+    let secondViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+    let delegate = ReentrantNavigationDelegate()
+    var observedTopViewController: NSViewController?
+    var observedCanGoForward = false
+    var observedForwardViewController: NSViewController?
+
+    navigationController.transitionDuration = 0
+    navigationController.pushViewController(firstViewController, animated: false)
+    navigationController.pushViewController(secondViewController, animated: false)
+    _ = navigationController.view
+    delegate.onWillShow = { controller in
+        observedTopViewController = controller.topViewController
+        observedCanGoForward = controller.canGoForward
+        observedForwardViewController = controller.forwardViewControllers.first
+    }
+    navigationController.delegate = delegate
+
+    #expect(navigationController.goBack(animated: true) === secondViewController)
+    #expect(observedTopViewController === firstViewController)
+    #expect(observedCanGoForward)
+    #expect(observedForwardViewController === secondViewController)
+    #expect(navigationController.topViewController === firstViewController)
+}
+
+@MainActor
+@Test func animatedForwardUpdatesHistoryBeforeWillShow() {
+    let rootViewController = TestViewController()
+    let firstViewController = TestViewController()
+    let secondViewController = TestViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+    let delegate = ReentrantNavigationDelegate()
+    var observedTopViewController: NSViewController?
+    var observedCanGoForward = true
+
+    navigationController.transitionDuration = 0
+    navigationController.pushViewController(firstViewController, animated: false)
+    navigationController.pushViewController(secondViewController, animated: false)
+    _ = navigationController.view
+    navigationController.goBack(animated: false)
+    delegate.onWillShow = { controller in
+        observedTopViewController = controller.topViewController
+        observedCanGoForward = controller.canGoForward
+    }
+    navigationController.delegate = delegate
+
+    #expect(navigationController.goForward(animated: true) === secondViewController)
+    #expect(observedTopViewController === secondViewController)
+    #expect(!observedCanGoForward)
+    #expect(navigationController.topViewController === secondViewController)
+}
+
+@MainActor
 @Test func loadingViewInstallsTopViewController() {
     let rootViewController = TestViewController()
     let pushedViewController = TestViewController()

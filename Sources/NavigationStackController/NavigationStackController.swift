@@ -318,7 +318,8 @@ public final class NavigationStackController: NSViewController {
             return outgoingViewController
         }
 
-        runTransition(from: outgoingViewController, to: incomingViewController, direction: .back, operation: .back, animated: true, commit: commit)
+        commit()
+        runTransition(from: outgoingViewController, to: incomingViewController, direction: .back, operation: .back, animated: true) { }
         return outgoingViewController
     }
 
@@ -352,7 +353,8 @@ public final class NavigationStackController: NSViewController {
             return incomingViewController
         }
 
-        runTransition(from: outgoingViewController, to: incomingViewController, direction: .forward, operation: .forward, animated: true, commit: commit)
+        commit()
+        runTransition(from: outgoingViewController, to: incomingViewController, direction: .forward, operation: .forward, animated: true) { }
         return incomingViewController
     }
 
