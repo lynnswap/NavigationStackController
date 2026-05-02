@@ -61,9 +61,10 @@ private final class DemoSplitViewController: NSSplitViewController, NSToolbarDel
         navigationToolbar.delegate = self
         navigationToolbar.displayMode = .iconOnly
         navigationToolbar.allowsUserCustomization = false
-        view.window?.toolbar = navigationToolbar
-        view.window?.toolbarStyle = .unified
-        view.window?.titleVisibility = .hidden
+        let window = unsafe view.window
+        window?.toolbar = navigationToolbar
+        window?.toolbarStyle = .unified
+        window?.titleVisibility = .hidden
         navigationToolbar.validateVisibleItems()
     }
 
