@@ -6,8 +6,8 @@ It provides a UIKit-style back/forward history model for macOS apps, including o
 
 ## Requirements
 
-- macOS 26.0+
-- Swift 6.3+
+- macOS 15.0+
+- Swift 6.2+
 - AppKit
 
 ## Usage
