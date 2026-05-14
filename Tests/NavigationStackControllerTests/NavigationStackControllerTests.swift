@@ -907,40 +907,60 @@ private func makeScrollWheelEvent(
     momentumPhase: NSEvent.Phase = [],
     location: NSPoint? = nil
 ) -> NSEvent {
-    let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: deltaY, wheel2: deltaX, wheel3: 0)!
-    if let location {
-        if let screenFrame = NSScreen.main?.frame {
-            event.location = NSPoint(x: screenFrame.minX + location.x, y: screenFrame.maxY - location.y)
-        } else {
-            event.location = location
-        }
-    }
-    event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-    event.setIntegerValueField(.scrollWheelEventScrollPhase, value: cgScrollPhaseValue(for: phase))
-    event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: cgScrollPhaseValue(for: momentumPhase))
-    return NSEvent(cgEvent: event)!
+    TestScrollWheelEvent(
+        deltaX: CGFloat(deltaX),
+        deltaY: CGFloat(deltaY),
+        phase: phase,
+        momentumPhase: momentumPhase,
+        location: location ?? .zero
+    )
 }
 
-private func cgScrollPhaseValue(for phase: NSEvent.Phase) -> Int64 {
-    if phase.contains(.mayBegin) {
-        return 128
+private final class TestScrollWheelEvent: NSEvent {
+    private let eventDeltaX: CGFloat
+    private let eventDeltaY: CGFloat
+    private let eventPhase: NSEvent.Phase
+    private let eventMomentumPhase: NSEvent.Phase
+    private let eventLocation: NSPoint
+
+    init(deltaX: CGFloat, deltaY: CGFloat, phase: NSEvent.Phase, momentumPhase: NSEvent.Phase, location: NSPoint) {
+        self.eventDeltaX = deltaX
+        self.eventDeltaY = deltaY
+        self.eventPhase = phase
+        self.eventMomentumPhase = momentumPhase
+        self.eventLocation = location
+        super.init()
     }
 
-    if phase.contains(.began) {
-        return 1
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
-    if phase.contains(.changed) {
-        return 2
+    override var type: NSEvent.EventType {
+        .scrollWheel
     }
 
-    if phase.contains(.ended) {
-        return 4
+    override var locationInWindow: NSPoint {
+        eventLocation
     }
 
-    if phase.contains(.cancelled) {
-        return 8
+    override var scrollingDeltaX: CGFloat {
+        eventDeltaX
     }
 
-    return 0
+    override var scrollingDeltaY: CGFloat {
+        eventDeltaY
+    }
+
+    override var hasPreciseScrollingDeltas: Bool {
+        true
+    }
+
+    override var phase: NSEvent.Phase {
+        eventPhase
+    }
+
+    override var momentumPhase: NSEvent.Phase {
+        eventMomentumPhase
+    }
 }
