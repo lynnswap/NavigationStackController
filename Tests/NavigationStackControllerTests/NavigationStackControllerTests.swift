@@ -482,6 +482,22 @@ import Testing
 }
 
 @MainActor
+@Test func horizontalScrollConflictResolverDefersZeroDeltaOverScrollableView() {
+    let containerView = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+    let scrollView = makeHorizontalTestScrollView(visibleWidth: 100, documentWidth: 300)
+    containerView.addSubview(scrollView)
+
+    let hitView = containerView.hitTest(NSPoint(x: 50, y: 40))
+
+    #expect(NavigationHorizontalScrollConflictResolver.canScrollHorizontally(from: hitView, inside: containerView, deltaX: 0))
+
+    scrollView.contentView.scroll(to: NSPoint(x: 200, y: 0))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+
+    #expect(NavigationHorizontalScrollConflictResolver.canScrollHorizontally(from: hitView, inside: containerView, deltaX: 0))
+}
+
+@MainActor
 @Test func rootScrollViewCanForwardSwipeTrackingThroughNavigationControllerResponder() {
     let rootViewController = TestViewController()
     let scrollRootViewController = HorizontalScrollRootViewController()
@@ -604,6 +620,36 @@ import Testing
     #expect(navigationController.topViewController === rootViewController)
     #expect(navigationController.forwardViewControllers.last === scrollRootViewController)
     #expect(!navigationController.isGestureEventMonitorInstalled)
+}
+
+@MainActor
+@Test func zeroDeltaBeginningOverScrollableDescendantDoesNotCapturePendingSwipe() {
+    let rootViewController = TestViewController()
+    let scrollRootViewController = HorizontalScrollRootViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+
+    _ = navigationController.view
+    navigationController.view.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
+    navigationController.minimumSwipeAnimationDuration = 0
+    navigationController.maximumSwipeAnimationDuration = 0
+    navigationController.pushViewController(scrollRootViewController, animated: false)
+
+    let scrollView = scrollRootViewController.view as! NSScrollView
+    scrollView.contentView.scroll(to: NSPoint(x: 100, y: 0))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+
+    #expect(!navigationController.handleForwardedSwipe(
+        with: makeScrollWheelEvent(deltaX: 0, phase: .began, location: NSPoint(x: 50, y: 40)),
+        ignoringHorizontalScrollViews: false
+    ))
+    #expect(!navigationController.isGestureEventMonitorInstalled)
+
+    #expect(!navigationController.handleForwardedSwipe(
+        with: makeScrollWheelEvent(deltaX: 20, phase: .changed, location: NSPoint(x: 50, y: 40)),
+        ignoringHorizontalScrollViews: false
+    ))
+    #expect(navigationController.topViewController === scrollRootViewController)
+    #expect(navigationController.forwardViewControllers.isEmpty)
 }
 
 @MainActor
@@ -854,8 +900,21 @@ private func isForward(_ direction: NavigationStackDirection?) -> Bool {
     return false
 }
 
-private func makeScrollWheelEvent(deltaX: Int32, deltaY: Int32 = 0, phase: NSEvent.Phase = [], momentumPhase: NSEvent.Phase = []) -> NSEvent {
+private func makeScrollWheelEvent(
+    deltaX: Int32,
+    deltaY: Int32 = 0,
+    phase: NSEvent.Phase = [],
+    momentumPhase: NSEvent.Phase = [],
+    location: NSPoint? = nil
+) -> NSEvent {
     let event = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: deltaY, wheel2: deltaX, wheel3: 0)!
+    if let location {
+        if let screenFrame = NSScreen.main?.frame {
+            event.location = NSPoint(x: screenFrame.minX + location.x, y: screenFrame.maxY - location.y)
+        } else {
+            event.location = location
+        }
+    }
     event.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
     event.setIntegerValueField(.scrollWheelEventScrollPhase, value: cgScrollPhaseValue(for: phase))
     event.setIntegerValueField(.scrollWheelEventMomentumPhase, value: cgScrollPhaseValue(for: momentumPhase))

@@ -908,14 +908,15 @@ extension NavigationStackController {
 @MainActor
 struct NavigationHorizontalScrollConflictResolver {
     static func canScrollHorizontally(from hitView: NSView?, inside boundaryView: NSView, deltaX: CGFloat) -> Bool {
-        guard deltaX != 0 else {
-            return false
-        }
-
         var currentView = hitView
         while let view = currentView {
             if let scrollView = view as? NSScrollView {
-                let canScroll = canScrollHorizontally(scrollView, deltaX: deltaX)
+                let canScroll = if deltaX == 0 {
+                    canScrollHorizontallyInAnyDirection(scrollView)
+                } else {
+                    canScrollHorizontally(scrollView, deltaX: deltaX)
+                }
+
                 if canScroll {
                     return true
                 }
@@ -931,7 +932,15 @@ struct NavigationHorizontalScrollConflictResolver {
         return false
     }
 
+    static func canScrollHorizontallyInAnyDirection(_ scrollView: NSScrollView) -> Bool {
+        canScrollHorizontally(scrollView, deltaX: 1) || canScrollHorizontally(scrollView, deltaX: -1)
+    }
+
     static func canScrollHorizontally(_ scrollView: NSScrollView, deltaX: CGFloat) -> Bool {
+        guard deltaX != 0 else {
+            return false
+        }
+
         guard let documentView = scrollView.documentView else {
             return false
         }
