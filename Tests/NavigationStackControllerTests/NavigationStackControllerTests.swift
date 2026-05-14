@@ -501,19 +501,19 @@ import Testing
 }
 
 @MainActor
-@Test func enclosingScrollViewCanAskNavigationContainerToTryWebKitStyleSwipe() {
+@Test func enclosingScrollViewCanAskNavigationContainerToHandleSwipeThroughLibrarySelector() {
     let rootViewController = TestViewController()
     let navigationController = NavigationStackController(rootViewController: rootViewController)
     let enclosingScrollView = makeHorizontalTestScrollView(visibleWidth: 100, documentWidth: 300)
-    let tryToSwipeSelector = #selector(NavigationStackController._tryToSwipe(with:ignoringPinnedState:))
+    let handleSwipeSelector = #selector(NavigationStackController.handleForwardedSwipe(with:ignoringHorizontalScrollViews:))
 
     _ = navigationController.view
     navigationController.view.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
     enclosingScrollView.documentView = navigationController.view
 
     #expect(navigationController.view.enclosingScrollView === enclosingScrollView)
-    #expect(navigationController.view.responds(to: tryToSwipeSelector))
-    #expect(navigationController.responds(to: tryToSwipeSelector))
+    #expect(navigationController.view.responds(to: handleSwipeSelector))
+    #expect(navigationController.responds(to: handleSwipeSelector))
 }
 
 @MainActor
@@ -526,9 +526,9 @@ import Testing
     navigationController.view.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
     navigationController.pushViewController(pushedViewController, animated: false)
 
-    let didHandle = navigationController._tryToSwipe(
+    let didHandle = navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 1, phase: .began),
-        ignoringPinnedState: false
+        ignoringHorizontalScrollViews: false
     )
 
     #expect(didHandle)
@@ -541,7 +541,7 @@ import Testing
 }
 
 @MainActor
-@Test func webKitStyleTryToSwipeCanCommitBackNavigationAfterSmallBeganEvent() {
+@Test func librarySwipeSelectorCanCommitBackNavigationAfterSmallBeganEvent() {
     let rootViewController = TestViewController()
     let pushedViewController = TestViewController()
     let navigationController = NavigationStackController(rootViewController: rootViewController)
@@ -552,17 +552,17 @@ import Testing
     navigationController.maximumSwipeAnimationDuration = 0
     navigationController.pushViewController(pushedViewController, animated: false)
 
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 1, phase: .began),
-        ignoringPinnedState: false
+        ignoringHorizontalScrollViews: false
     ))
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 220, phase: .changed),
-        ignoringPinnedState: false
+        ignoringHorizontalScrollViews: false
     ))
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 0, momentumPhase: .began),
-        ignoringPinnedState: false
+        ignoringHorizontalScrollViews: false
     ))
 
     RunLoop.current.run(until: Date().addingTimeInterval(0.01))
@@ -583,9 +583,9 @@ import Testing
     navigationController.maximumSwipeAnimationDuration = 0
     navigationController.pushViewController(scrollRootViewController, animated: false)
 
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 1, phase: .began),
-        ignoringPinnedState: false
+        ignoringHorizontalScrollViews: false
     ))
     #expect(navigationController.isGestureEventMonitorInstalled)
 
@@ -619,13 +619,13 @@ import Testing
     navigationController.maximumSwipeAnimationDuration = 0
     navigationController.pushViewController(pushedViewController, animated: false)
 
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 1, phase: .began),
-        ignoringPinnedState: false
+        ignoringHorizontalScrollViews: false
     ))
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 118, phase: .changed),
-        ignoringPinnedState: false
+        ignoringHorizontalScrollViews: false
     ))
 
     #expect(navigationController.finishActiveSwipeGesture(cancelled: false))
@@ -649,13 +649,13 @@ import Testing
     navigationController.maximumSwipeAnimationDuration = 0
     navigationController.pushViewController(scrollRootViewController, animated: false)
 
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 1, phase: .began),
-        ignoringPinnedState: true
+        ignoringHorizontalScrollViews: true
     ))
-    #expect(navigationController._tryToSwipe(
+    #expect(navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 118, phase: .changed),
-        ignoringPinnedState: true
+        ignoringHorizontalScrollViews: true
     ))
 
     let scrollView = scrollRootViewController.view as! NSScrollView

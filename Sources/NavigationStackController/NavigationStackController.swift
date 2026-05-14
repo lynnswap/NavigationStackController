@@ -210,10 +210,9 @@ public final class NavigationStackController: NSViewController {
         return wants
     }
 
-    @objc(_tryToSwipeWithEvent:ignoringPinnedState:)
-    func _tryToSwipe(with event: NSEvent, ignoringPinnedState: Bool) -> Bool {
-        let handled = handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringPinnedState)
-        return handled
+    @objc(navigationStackControllerHandleSwipeEvent:ignoringHorizontalScrollViews:)
+    func handleForwardedSwipe(with event: NSEvent, ignoringHorizontalScrollViews: Bool) -> Bool {
+        handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringHorizontalScrollViews)
     }
 
     /// Replaces the current stack with a new set of view controllers.
@@ -1021,10 +1020,9 @@ private final class NavigationStackContainerView: NSView {
         super.touchesCancelled(with: event)
     }
 
-    @objc(_tryToSwipeWithEvent:ignoringPinnedState:)
-    func _tryToSwipe(with event: NSEvent, ignoringPinnedState: Bool) -> Bool {
-        let handled = navigationController?.handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringPinnedState) ?? false
-        return handled
+    @objc(navigationStackControllerHandleSwipeEvent:ignoringHorizontalScrollViews:)
+    func handleForwardedSwipe(with event: NSEvent, ignoringHorizontalScrollViews: Bool) -> Bool {
+        navigationController?.handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringHorizontalScrollViews) ?? false
     }
 }
 
