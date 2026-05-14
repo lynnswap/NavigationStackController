@@ -422,7 +422,11 @@ public final class NavigationStackController: NSViewController {
     }
 
     func shouldDeferSwipeTrackingToHorizontalScrollView(for event: NSEvent) -> Bool {
-        let localPoint = containerView.convert(event.locationInWindow, from: nil)
+        let localPoint = if unsafe containerView.window == nil {
+            event.locationInWindow
+        } else {
+            containerView.convert(event.locationInWindow, from: nil)
+        }
         let hitView = containerView.hitTest(localPoint)
 
         let shouldDefer = NavigationHorizontalScrollConflictResolver.canScrollHorizontally(
@@ -911,7 +915,7 @@ struct NavigationHorizontalScrollConflictResolver {
         var currentView = hitView
         while let view = currentView {
             if let scrollView = view as? NSScrollView {
-                let canScroll = if deltaX == 0 {
+                let canScroll = if abs(deltaX) < NavigationSwipeStartClassifier.defaultMinimumHorizontalDistance {
                     canScrollHorizontallyInAnyDirection(scrollView)
                 } else {
                     canScrollHorizontally(scrollView, deltaX: deltaX)

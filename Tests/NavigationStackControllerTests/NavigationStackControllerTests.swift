@@ -489,12 +489,14 @@ import Testing
 
     let hitView = containerView.hitTest(NSPoint(x: 50, y: 40))
 
+    #expect(NavigationHorizontalScrollConflictResolver.canScrollHorizontally(from: hitView, inside: containerView, deltaX: 1))
     #expect(NavigationHorizontalScrollConflictResolver.canScrollHorizontally(from: hitView, inside: containerView, deltaX: 0))
 
     scrollView.contentView.scroll(to: NSPoint(x: 200, y: 0))
     scrollView.reflectScrolledClipView(scrollView.contentView)
 
     #expect(NavigationHorizontalScrollConflictResolver.canScrollHorizontally(from: hitView, inside: containerView, deltaX: 0))
+    #expect(NavigationHorizontalScrollConflictResolver.canScrollHorizontally(from: hitView, inside: containerView, deltaX: -1))
 }
 
 @MainActor
@@ -635,6 +637,8 @@ import Testing
     navigationController.pushViewController(scrollRootViewController, animated: false)
 
     let scrollView = scrollRootViewController.view as! NSScrollView
+    scrollView.documentView?.frame.size.width = 600
+    scrollView.layoutSubtreeIfNeeded()
     scrollView.contentView.scroll(to: NSPoint(x: 100, y: 0))
     scrollView.reflectScrolledClipView(scrollView.contentView)
 
@@ -646,6 +650,36 @@ import Testing
 
     #expect(!navigationController.handleForwardedSwipe(
         with: makeScrollWheelEvent(deltaX: 20, phase: .changed, location: NSPoint(x: 50, y: 40)),
+        ignoringHorizontalScrollViews: false
+    ))
+    #expect(navigationController.topViewController === scrollRootViewController)
+    #expect(navigationController.forwardViewControllers.isEmpty)
+}
+
+@MainActor
+@Test func preThresholdBeginningOverScrollableDescendantDoesNotCapturePendingSwipe() {
+    let rootViewController = TestViewController()
+    let scrollRootViewController = HorizontalScrollRootViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+
+    _ = navigationController.view
+    navigationController.view.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
+    navigationController.minimumSwipeAnimationDuration = 0
+    navigationController.maximumSwipeAnimationDuration = 0
+    navigationController.pushViewController(scrollRootViewController, animated: false)
+
+    let scrollView = scrollRootViewController.view as! NSScrollView
+    scrollView.documentView?.frame.size.width = 600
+    scrollView.layoutSubtreeIfNeeded()
+
+    #expect(!navigationController.handleForwardedSwipe(
+        with: makeScrollWheelEvent(deltaX: 1, phase: .began, location: NSPoint(x: 50, y: 40)),
+        ignoringHorizontalScrollViews: false
+    ))
+    #expect(!navigationController.isGestureEventMonitorInstalled)
+
+    #expect(!navigationController.handleForwardedSwipe(
+        with: makeScrollWheelEvent(deltaX: -20, phase: .changed, location: NSPoint(x: 50, y: 40)),
         ignoringHorizontalScrollViews: false
     ))
     #expect(navigationController.topViewController === scrollRootViewController)

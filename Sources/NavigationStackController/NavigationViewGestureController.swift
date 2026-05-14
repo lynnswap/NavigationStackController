@@ -133,7 +133,9 @@ struct NavigationSwipeStartClassifier {
         case cancel
     }
 
-    var minimumHorizontalDistance: CGFloat = 10
+    static let defaultMinimumHorizontalDistance: CGFloat = 10
+
+    var minimumHorizontalDistance: CGFloat = Self.defaultMinimumHorizontalDistance
     var verticalHysteresis: CGFloat = 1.2
 
     func decision(deltaX: CGFloat, deltaY: CGFloat) -> Decision {
