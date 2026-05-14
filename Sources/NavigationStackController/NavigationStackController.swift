@@ -15,7 +15,7 @@ public enum NavigationStackOperation: Equatable, Sendable {
     case forward
 }
 
-enum NavigationStackDirection {
+enum NavigationStackDirection: Equatable {
     case push
     case back
     case forward
@@ -135,7 +135,20 @@ public final class NavigationStackController: NSViewController {
     private var forwardViewControllerStack: [NSViewController] = []
     private var activeTransition: Transition?
     private var isNotifyingWillShow = false
+    private struct EventMonitorToken: @unchecked Sendable {
+        let value: Any
+    }
+
+    private struct EventBox: @unchecked Sendable {
+        let value: NSEvent
+    }
+
+    private var gestureEventMonitor: EventMonitorToken?
     private lazy var viewGestureController = NavigationViewGestureController(navigationController: self)
+
+    var isGestureEventMonitorInstalled: Bool {
+        gestureEventMonitor != nil
+    }
 
     private var canStartNavigation: Bool {
         activeTransition == nil && !isNotifyingWillShow
@@ -155,6 +168,12 @@ public final class NavigationStackController: NSViewController {
     /// ``init(rootViewController:)`` to create the controller with a root view controller.
     public override init(nibName nibNameOrNil: NSNib.Name?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
+    }
+
+    deinit {
+        if let gestureEventMonitor {
+            NSEvent.removeMonitor(gestureEventMonitor.value)
+        }
     }
 
     /// Creates a navigation stack controller from an archive.
@@ -179,6 +198,21 @@ public final class NavigationStackController: NSViewController {
     public override func viewDidLayout() {
         super.viewDidLayout()
         layoutContentViews()
+    }
+
+    public override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
+        let wants = shouldForwardScrollEventsForSwipeTracking(on: axis)
+        return wants
+    }
+
+    public override func wantsForwardedScrollEvents(for axis: NSEvent.GestureAxis) -> Bool {
+        let wants = shouldForwardScrollEventsForSwipeTracking(on: axis)
+        return wants
+    }
+
+    @objc(navigationStackControllerHandleSwipeEvent:ignoringHorizontalScrollViews:)
+    func handleForwardedSwipe(with event: NSEvent, ignoringHorizontalScrollViews: Bool) -> Bool {
+        handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringHorizontalScrollViews)
     }
 
     /// Replaces the current stack with a new set of view controllers.
@@ -375,12 +409,101 @@ public final class NavigationStackController: NSViewController {
         return incomingViewController
     }
 
-    fileprivate func handleScrollWheel(_ event: NSEvent) -> Bool {
-        viewGestureController.handleScrollWheel(event)
+    fileprivate func handleScrollWheel(_ event: NSEvent, ignoringHorizontalScrollViews: Bool = false) -> Bool {
+        let handled = viewGestureController.handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringHorizontalScrollViews)
+        updateGestureEventMonitorState()
+        return handled
+    }
+
+    func finishActiveSwipeGesture(cancelled: Bool) -> Bool {
+        let handled = viewGestureController.finishActiveSwipeGesture(cancelled: cancelled)
+        updateGestureEventMonitorState()
+        return handled
+    }
+
+    func shouldDeferSwipeTrackingToHorizontalScrollView(for event: NSEvent) -> Bool {
+        let localPoint = if unsafe containerView.window == nil {
+            event.locationInWindow
+        } else {
+            containerView.convert(event.locationInWindow, from: nil)
+        }
+        let hitView = containerView.hitTest(localPoint)
+
+        let shouldDefer = NavigationHorizontalScrollConflictResolver.canScrollHorizontally(
+            from: hitView,
+            inside: containerView,
+            deltaX: event.scrollingDeltaX
+        )
+        return shouldDefer
     }
 
     fileprivate func shouldForwardScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
         viewGestureController.wantsScrollEventsForSwipeTracking(on: axis)
+    }
+
+    private func startGestureEventMonitorIfNeeded() {
+        guard gestureEventMonitor == nil else {
+            return
+        }
+
+        guard let monitor = NSEvent.addLocalMonitorForEvents(matching: [.scrollWheel, .endGesture], handler: { [weak self] event in
+            let eventBox = EventBox(value: event)
+            let consumed = MainActor.assumeIsolated {
+                guard let self else {
+                    return false
+                }
+
+                return self.handleLocalGestureMonitorEvent(eventBox.value)
+            }
+            return consumed ? nil : event
+        }) else {
+            return
+        }
+
+        gestureEventMonitor = EventMonitorToken(value: monitor)
+    }
+
+    private func updateGestureEventMonitorState() {
+        if viewGestureController.isTrackingSwipeGesture || activeTransition != nil {
+            startGestureEventMonitorIfNeeded()
+        } else {
+            stopGestureEventMonitor()
+        }
+    }
+
+    func handleLocalGestureMonitorEvent(_ event: NSEvent, requiringMatchingWindow: Bool = true) -> Bool {
+        let currentWindow = unsafe view.window
+        let currentWindowNumber = currentWindow?.windowNumber
+        let matchesWindow = !requiringMatchingWindow
+            || (event.window != nil && event.window === currentWindow)
+            || (event.windowNumber != 0 && event.windowNumber == currentWindowNumber)
+
+        switch event.type {
+        case .scrollWheel:
+            guard matchesWindow else {
+                return false
+            }
+
+            let handled = handleScrollWheel(event, ignoringHorizontalScrollViews: true)
+            return handled
+        case .endGesture:
+            guard matchesWindow else {
+                return false
+            }
+
+            return finishActiveSwipeGesture(cancelled: false)
+        default:
+            return false
+        }
+    }
+
+    private func stopGestureEventMonitor() {
+        guard let gestureEventMonitor else {
+            return
+        }
+
+        NSEvent.removeMonitor(gestureEventMonitor.value)
+        self.gestureEventMonitor = nil
     }
 
     fileprivate func layoutContentViews() {
@@ -404,10 +527,22 @@ extension NavigationStackController {
         let toViewController: NSViewController
         let direction: NavigationStackDirection
         let operation: NavigationStackOperation
+        let backdropView = NavigationTransitionBackdropView()
+        let fromTransitionView = NavigationTransitionContentView()
+        let toTransitionView = NavigationTransitionContentView()
         var progress: CGFloat = 0
+        var isAnimating = false
 
         var visibleViewController: NSViewController {
             progress >= 1 ? toViewController : fromViewController
+        }
+
+        private var fromAnimatedView: NSView {
+            fromTransitionView.contentView == nil ? fromViewController.view : fromTransitionView
+        }
+
+        private var toAnimatedView: NSView {
+            toTransitionView.contentView == nil ? toViewController.view : toTransitionView
         }
 
         init(from fromViewController: NSViewController, to toViewController: NSViewController, direction: NavigationStackDirection, operation: NavigationStackOperation) {
@@ -418,16 +553,24 @@ extension NavigationStackController {
         }
 
         func layout(in bounds: NSRect, parallaxFactor: CGFloat, layoutDirection: NSUserInterfaceLayoutDirection) {
+            guard !isAnimating else {
+                return
+            }
+
             apply(progress: progress, in: bounds, parallaxFactor: parallaxFactor, layoutDirection: layoutDirection, animated: false)
         }
 
         func apply(progress rawProgress: CGFloat, in bounds: NSRect, parallaxFactor: CGFloat, layoutDirection: NSUserInterfaceLayoutDirection, animated: Bool) {
-            progress = min(max(rawProgress, 0), 1)
+            let progress = min(max(rawProgress, 0), 1)
+            if !animated {
+                self.progress = progress
+            }
 
             let width = max(bounds.width, 1)
             let layoutSign: CGFloat = layoutDirection == .rightToLeft ? -1 : 1
-            let fromView = fromViewController.view
-            let toView = toViewController.view
+            let fromView = fromAnimatedView
+            let toView = toAnimatedView
+            backdropView.frame = bounds
             var fromFrame = bounds
             var toFrame = bounds
 
@@ -532,17 +675,49 @@ extension NavigationStackController {
         toView.autoresizingMask = [.width, .height]
         fromView.wantsLayer = true
         toView.wantsLayer = true
+        transition.fromTransitionView.installContentView(fromView)
+        transition.toTransitionView.installContentView(toView)
+
+        let fromTransitionView = transition.fromTransitionView
+        let toTransitionView = transition.toTransitionView
 
         switch transition.direction {
         case .push, .forward:
-            containerView.addSubview(fromView)
-            containerView.addSubview(toView, positioned: .above, relativeTo: fromView)
+            containerView.addSubview(fromTransitionView)
+            containerView.addSubview(toTransitionView, positioned: .above, relativeTo: fromTransitionView)
         case .back:
-            containerView.addSubview(toView)
-            containerView.addSubview(fromView, positioned: .above, relativeTo: toView)
+            transition.backdropView.backgroundColor = transitionBackdropColor(matching: toView)
+            containerView.addSubview(transition.backdropView)
+            containerView.addSubview(toTransitionView)
+            containerView.addSubview(fromTransitionView, positioned: .above, relativeTo: toTransitionView)
         }
 
         transition.apply(progress: 0, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: false)
+        primeTransitionViewForDisplay(fromTransitionView)
+        primeTransitionViewForDisplay(toTransitionView)
+    }
+
+    func primeTransitionViewForDisplay(_ view: NSView) {
+        view.layoutSubtreeIfNeeded()
+        view.displayIfNeeded()
+    }
+
+    func transitionBackdropColor(matching view: NSView) -> NSColor {
+        if let scrollView = view as? NSScrollView {
+            if scrollView.drawsBackground {
+                return scrollView.backgroundColor
+            }
+
+            if scrollView.contentView.drawsBackground {
+                return scrollView.contentView.backgroundColor
+            }
+        }
+
+        if let backgroundColor = view.layer?.backgroundColor, let color = NSColor(cgColor: backgroundColor), color.alphaComponent > 0 {
+            return color
+        }
+
+        return .windowBackgroundColor
     }
 
     func runTransition(from fromViewController: NSViewController, to toViewController: NSViewController, direction: NavigationStackDirection, operation: NavigationStackOperation, animated: Bool, commit: @escaping @MainActor @Sendable () -> Void) {
@@ -559,13 +734,16 @@ extension NavigationStackController {
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = transitionDuration
+            context.allowsImplicitAnimation = true
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            transition.isAnimating = true
             transition.apply(progress: 1, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: true)
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else {
                     return
                 }
+                transition.isAnimating = false
                 self.finishTransition(transition, committed: true, commit: commit, animated: true)
             }
         }
@@ -574,6 +752,7 @@ extension NavigationStackController {
     func finishTransition(_ transition: Transition, committed: Bool, commit: @MainActor @Sendable () -> Void, animated: Bool) {
         if activeTransition === transition {
             activeTransition = nil
+            stopGestureEventMonitor()
         }
 
         if committed {
@@ -667,9 +846,9 @@ extension NavigationStackController {
             toViewController = forwardViewController
             operation = .forward
         }
-
         let transition = Transition(from: fromViewController, to: toViewController, direction: direction, operation: operation)
         activeTransition = transition
+        startGestureEventMonitorIfNeeded()
         notifyWillShow(toViewController, operation: operation, animated: true)
         prepareTransition(transition)
         return true
@@ -686,10 +865,17 @@ extension NavigationStackController {
         }
 
         let targetProgress: CGFloat = committed ? 1 : 0
+        guard duration > 0 else {
+            transition.apply(progress: targetProgress, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: false)
+            completeSwipeTransitionIfCurrent(transition, committed: committed, animated: false, completion: completion)
+            return
+        }
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = duration
+            context.allowsImplicitAnimation = true
             context.timingFunction = CAMediaTimingFunction(name: committed ? .easeOut : .easeInEaseOut)
+            transition.isAnimating = true
             transition.apply(progress: targetProgress, in: containerView.bounds, parallaxFactor: parallaxFactor, layoutDirection: view.userInterfaceLayoutDirection, animated: true)
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
@@ -697,12 +883,85 @@ extension NavigationStackController {
                     return
                 }
 
-                self.finishTransition(transition, committed: committed, commit: {
-                    self.commitStackMutation(for: transition)
-                }, animated: true)
-                completion()
+                transition.isAnimating = false
+                self.completeSwipeTransitionIfCurrent(transition, committed: committed, animated: true, completion: completion)
             }
         }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.05) { [weak self] in
+            MainActor.assumeIsolated {
+                transition.isAnimating = false
+                self?.completeSwipeTransitionIfCurrent(transition, committed: committed, animated: true, completion: completion)
+            }
+        }
+    }
+
+    private func completeSwipeTransitionIfCurrent(_ transition: Transition, committed: Bool, animated: Bool, completion: @escaping @MainActor () -> Void) {
+        guard activeTransition === transition else {
+            return
+        }
+
+        finishTransition(transition, committed: committed, commit: {
+            commitStackMutation(for: transition)
+        }, animated: animated)
+        completion()
+    }
+
+}
+
+@MainActor
+struct NavigationHorizontalScrollConflictResolver {
+    static func canScrollHorizontally(from hitView: NSView?, inside boundaryView: NSView, deltaX: CGFloat) -> Bool {
+        var currentView = hitView
+        while let view = currentView {
+            if let scrollView = view as? NSScrollView {
+                let canScroll = if abs(deltaX) < NavigationSwipeStartClassifier.defaultMinimumHorizontalDistance {
+                    canScrollHorizontallyInAnyDirection(scrollView)
+                } else {
+                    canScrollHorizontally(scrollView, deltaX: deltaX)
+                }
+
+                if canScroll {
+                    return true
+                }
+            }
+
+            if view === boundaryView {
+                return false
+            }
+
+            currentView = unsafe view.superview
+        }
+
+        return false
+    }
+
+    static func canScrollHorizontallyInAnyDirection(_ scrollView: NSScrollView) -> Bool {
+        canScrollHorizontally(scrollView, deltaX: 1) || canScrollHorizontally(scrollView, deltaX: -1)
+    }
+
+    static func canScrollHorizontally(_ scrollView: NSScrollView, deltaX: CGFloat) -> Bool {
+        guard deltaX != 0 else {
+            return false
+        }
+
+        guard let documentView = scrollView.documentView else {
+            return false
+        }
+
+        let visibleRect = scrollView.contentView.documentVisibleRect
+        let documentBounds = documentView.bounds
+        let minimumX = documentBounds.minX
+        let maximumX = max(documentBounds.maxX - visibleRect.width, minimumX)
+        let currentX = visibleRect.minX
+        let tolerance: CGFloat = 0.5
+
+        let canScroll = if deltaX > 0 {
+            currentX > minimumX + tolerance
+        } else {
+            currentX < maximumX - tolerance
+        }
+        return canScroll
     }
 }
 
@@ -711,6 +970,21 @@ private final class NavigationStackContainerView: NSView {
 
     override var isFlipped: Bool {
         true
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureTouchTracking()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureTouchTracking()
+    }
+
+    private func configureTouchTracking() {
+        allowedTouchTypes = [.indirect]
+        wantsRestingTouches = true
     }
 
     override func layout() {
@@ -722,15 +996,111 @@ private final class NavigationStackContainerView: NSView {
         if navigationController?.handleScrollWheel(event) == true {
             return
         }
-
         super.scrollWheel(with: event)
     }
 
     override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
-        navigationController?.shouldForwardScrollEventsForSwipeTracking(on: axis) ?? false
+        let wants = navigationController?.shouldForwardScrollEventsForSwipeTracking(on: axis) ?? false
+        return wants
     }
 
     override func wantsForwardedScrollEvents(for axis: NSEvent.GestureAxis) -> Bool {
-        navigationController?.shouldForwardScrollEventsForSwipeTracking(on: axis) ?? false
+        let wants = navigationController?.shouldForwardScrollEventsForSwipeTracking(on: axis) ?? false
+        return wants
+    }
+
+    override func endGesture(with event: NSEvent) {
+        if navigationController?.finishActiveSwipeGesture(cancelled: false) == true {
+            return
+        }
+
+        super.endGesture(with: event)
+    }
+
+    override func touchesEnded(with event: NSEvent) {
+        if navigationController?.finishActiveSwipeGesture(cancelled: false) == true {
+            return
+        }
+
+        super.touchesEnded(with: event)
+    }
+
+    override func touchesCancelled(with event: NSEvent) {
+        if navigationController?.finishActiveSwipeGesture(cancelled: true) == true {
+            return
+        }
+
+        super.touchesCancelled(with: event)
+    }
+
+    @objc(navigationStackControllerHandleSwipeEvent:ignoringHorizontalScrollViews:)
+    func handleForwardedSwipe(with event: NSEvent, ignoringHorizontalScrollViews: Bool) -> Bool {
+        navigationController?.handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringHorizontalScrollViews) ?? false
+    }
+}
+
+final class NavigationTransitionBackdropView: NSView {
+    var backgroundColor: NSColor = .windowBackgroundColor {
+        didSet {
+            layer?.backgroundColor = backgroundColor.cgColor
+            needsDisplay = true
+        }
+    }
+
+    override var isOpaque: Bool {
+        true
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureLayer()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureLayer()
+    }
+
+    private func configureLayer() {
+        wantsLayer = true
+        layer?.backgroundColor = backgroundColor.cgColor
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        backgroundColor.setFill()
+        dirtyRect.fill()
+    }
+}
+
+final class NavigationTransitionContentView: NSView {
+    private(set) var contentView: NSView?
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        configureLayer()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        configureLayer()
+    }
+
+    func installContentView(_ view: NSView) {
+        contentView?.removeFromSuperview()
+        contentView = view
+        view.removeFromSuperview()
+        view.frame = bounds
+        view.autoresizingMask = [.width, .height]
+        addSubview(view)
+    }
+
+    override func layout() {
+        super.layout()
+        contentView?.frame = bounds
+    }
+
+    private func configureLayer() {
+        wantsLayer = true
+        layer?.masksToBounds = true
     }
 }

@@ -9,7 +9,7 @@ final class NavigationViewGestureController {
         self.navigationController = navigationController
     }
 
-    func handleScrollWheel(_ event: NSEvent) -> Bool {
+    func handleScrollWheel(_ event: NSEvent, ignoringHorizontalScrollViews: Bool = false) -> Bool {
         guard let navigationController else {
             return false
         }
@@ -26,6 +26,10 @@ final class NavigationViewGestureController {
             return false
         }
 
+        if !ignoringHorizontalScrollViews, navigationController.shouldDeferSwipeTrackingToHorizontalScrollView(for: event) {
+            return false
+        }
+
         return swipeProgressTracker.handleScrollWheel(event)
     }
 
@@ -34,10 +38,11 @@ final class NavigationViewGestureController {
             return false
         }
 
-        return axis == .horizontal
+        let wants = axis == .horizontal
             && navigationController.allowsBackForwardNavigationGestures
             && NSEvent.isSwipeTrackingFromScrollEventsEnabled
             && (navigationController.canGoBack || navigationController.canGoForward)
+        return wants
     }
 
     func progressSign(for direction: NavigationStackDirection) -> CGFloat {
@@ -94,8 +99,13 @@ final class NavigationViewGestureController {
         navigationController?.maximumSwipeAnimationDuration ?? 0.4
     }
 
+    var isTrackingSwipeGesture: Bool {
+        swipeProgressTracker.isActive
+    }
+
     func beginSwipeGesture(direction: NavigationStackDirection) -> Bool {
-        navigationController?.beginSwipeGesture(direction: direction) ?? false
+        let didBegin = navigationController?.beginSwipeGesture(direction: direction) ?? false
+        return didBegin
     }
 
     func handleSwipeGesture(progress: CGFloat) {
@@ -110,6 +120,10 @@ final class NavigationViewGestureController {
 
         navigationController.endSwipeGesture(committed: committed, duration: duration, completion: completion)
     }
+
+    func finishActiveSwipeGesture(cancelled: Bool) -> Bool {
+        return swipeProgressTracker.finishActiveSwipeGesture(cancelled: cancelled)
+    }
 }
 
 struct NavigationSwipeStartClassifier {
@@ -119,7 +133,9 @@ struct NavigationSwipeStartClassifier {
         case cancel
     }
 
-    var minimumHorizontalDistance: CGFloat = 10
+    static let defaultMinimumHorizontalDistance: CGFloat = 10
+
+    var minimumHorizontalDistance: CGFloat = Self.defaultMinimumHorizontalDistance
     var verticalHysteresis: CGFloat = 1.2
 
     func decision(deltaX: CGFloat, deltaY: CGFloat) -> Decision {
@@ -174,6 +190,21 @@ private final class NavigationSwipeProgressTracker {
         state != .none
     }
 
+    func finishActiveSwipeGesture(cancelled: Bool) -> Bool {
+        switch state {
+        case .none:
+            return false
+        case .pending:
+            reset()
+            return true
+        case .swiping:
+            finishSwipe(forcedCancelled: cancelled)
+            return true
+        case .animating:
+            return true
+        }
+    }
+
     func handleScrollWheel(_ event: NSEvent) -> Bool {
         guard let viewGestureController else {
             return false
@@ -183,7 +214,7 @@ private final class NavigationSwipeProgressTracker {
             return true
         }
 
-        if event.phase.contains(.mayBegin) || event.phase.contains(.began) {
+        if event.phase.contains(.mayBegin) || event.phase.contains(.began) || (state == .none && event.phase.contains(.changed) && event.momentumPhase.isEmpty) {
             reset()
             state = .pending
         }
@@ -204,13 +235,21 @@ private final class NavigationSwipeProgressTracker {
         if state == .pending {
             switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
             case .pending:
-                return false
+                if !event.momentumPhase.isEmpty {
+                    reset()
+                    return false
+                }
+                return true
             case .cancel:
                 reset()
                 return false
             case .start:
-                guard let direction = viewGestureController.navigationDirection(forSwipeGestureAmount: cumulativeDeltaX),
-                      viewGestureController.beginSwipeGesture(direction: direction) else {
+                guard let direction = viewGestureController.navigationDirection(forSwipeGestureAmount: cumulativeDeltaX) else {
+                    reset()
+                    return false
+                }
+
+                guard viewGestureController.beginSwipeGesture(direction: direction) else {
                     reset()
                     return false
                 }
@@ -228,6 +267,11 @@ private final class NavigationSwipeProgressTracker {
         let progress = min(max(signedDistance / viewGestureController.totalSwipeDistance, 0), 1)
         updateProgress(progress)
         viewGestureController.handleSwipeGesture(progress: progress)
+
+        if !event.momentumPhase.isEmpty {
+            finishSwipe(forcedCancelled: event.momentumPhase.contains(.cancelled))
+        }
+
         return true
     }
 
@@ -254,22 +298,13 @@ private final class NavigationSwipeProgressTracker {
             return
         }
 
-        let cancelled = forceCancelled || shouldCancel()
+        let projectedProgress = progress + averageVelocity * viewGestureController.kineticProjectionDuration
+        let cancelled = forceCancelled || projectedProgress < viewGestureController.completionThreshold
         let duration = animationDuration(cancelled: cancelled)
         state = .animating
-
         viewGestureController.endSwipeGesture(committed: !cancelled, duration: duration) { [weak self] in
             self?.reset()
         }
-    }
-
-    private func shouldCancel() -> Bool {
-        guard let viewGestureController else {
-            return true
-        }
-
-        let projectedProgress = progress + averageVelocity * viewGestureController.kineticProjectionDuration
-        return projectedProgress < viewGestureController.completionThreshold
     }
 
     private func animationDuration(cancelled: Bool) -> TimeInterval {
