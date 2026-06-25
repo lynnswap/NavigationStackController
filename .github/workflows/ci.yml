@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Resolve Swift 6.2 Xcode
         run: |
@@ -81,7 +81,7 @@ jobs:
       XCODE_MAJOR: '26'
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Resolve latest stable Xcode
         run: |
