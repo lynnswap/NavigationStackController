@@ -1,15 +1,16 @@
-/// The operation that caused a navigation stack controller to show a view controller.
+/// The navigation operation associated with a display notification.
+///
+/// This value describes the attempted operation, including an interactive transition that was cancelled.
 public enum NavigationStackOperation: Equatable, Sendable {
-    /// The stack was replaced with a new set of view controllers.
+    /// A replacement of the navigation stack.
     case set
 
-    /// A new view controller was pushed on top of the stack.
+    /// A push of a new page onto the stack.
     case push
 
-    /// The stack moved backward in its history.
+    /// A move backward in history.
     case back
 
-    /// The stack moved forward in its history.
+    /// A move forward in history.
     case forward
 }
-
