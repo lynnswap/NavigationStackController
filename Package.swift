@@ -1,4 +1,4 @@
-// swift-tools-version: 6.2
+// swift-tools-version: 6.3
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -11,7 +11,7 @@ let strictSwiftSettings: [SwiftSetting] = [
 
 let package = Package(
     name: "NavigationStackController",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS("15.4"), .iOS("18.4")],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
@@ -24,7 +24,14 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "NavigationStackController",
+            dependencies: [
+                .target(name: "NavigationStackControllerRuntime", condition: .when(platforms: [.iOS])),
+            ],
             swiftSettings: strictSwiftSettings
+        ),
+        .target(
+            name: "NavigationStackControllerRuntime",
+            linkerSettings: [.linkedFramework("UIKit", .when(platforms: [.iOS]))]
         ),
         .testTarget(
             name: "NavigationStackControllerTests",

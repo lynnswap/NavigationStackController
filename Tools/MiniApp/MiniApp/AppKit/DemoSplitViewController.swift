@@ -1,12 +1,5 @@
-//
-//  ContentView.swift
-//  MiniApp
-//
-//  Created by Kazuki Nakashima on 2026/05/02.
-//
-
+#if os(macOS)
 import AppKit
-import SwiftUI
 import NavigationStackController
 
 private enum DemoPageContentStyle: Int {
@@ -23,39 +16,7 @@ private enum DemoPageContentStyle: Int {
     }
 }
 
-struct ContentView: View {
-    private let contentStyle: DemoPageContentStyle
-    private let initialPageCount: Int
-
-    init() {
-        contentStyle = .centeredTitle
-        initialPageCount = 1
-    }
-
-    fileprivate init(contentStyle: DemoPageContentStyle, initialPageCount: Int = 1) {
-        self.contentStyle = contentStyle
-        self.initialPageCount = max(initialPageCount, 1)
-    }
-
-    var body: some View {
-        DemoSplitNavigationView(contentStyle: contentStyle, initialPageCount: initialPageCount)
-            .ignoresSafeArea()
-    }
-}
-
-private struct DemoSplitNavigationView: NSViewControllerRepresentable {
-    let contentStyle: DemoPageContentStyle
-    let initialPageCount: Int
-
-    func makeNSViewController(context: Context) -> DemoSplitViewController {
-        DemoSplitViewController(contentStyle: contentStyle, initialPageCount: initialPageCount)
-    }
-
-    func updateNSViewController(_ nsViewController: DemoSplitViewController, context: Context) {
-    }
-}
-
-private final class DemoSplitViewController: NSSplitViewController, NSToolbarDelegate, NSToolbarItemValidation {
+final class DemoSplitViewController: NSSplitViewController, NSToolbarDelegate, NSToolbarItemValidation {
     private enum ToolbarItem {
         static let leftBack = NSToolbarItem.Identifier("DemoToolbar.LeftBack")
         static let leftForward = NSToolbarItem.Identifier("DemoToolbar.LeftForward")
@@ -71,10 +32,10 @@ private final class DemoSplitViewController: NSSplitViewController, NSToolbarDel
     private var contentStyle: DemoPageContentStyle
     private weak var contentStyleControl: NSSegmentedControl?
 
-    init(contentStyle: DemoPageContentStyle = .centeredTitle, initialPageCount: Int = 1) {
-        self.contentStyle = contentStyle
-        leftPane = DemoNavigationHostController(contentStyle: contentStyle, initialPageCount: initialPageCount)
-        rightPane = DemoNavigationHostController(contentStyle: contentStyle, initialPageCount: initialPageCount)
+    init() {
+        contentStyle = .centeredTitle
+        leftPane = DemoNavigationHostController()
+        rightPane = DemoNavigationHostController()
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -633,10 +594,4 @@ private final class DemoHorizontalScrollDocumentView: NSView {
     }
 }
 
-#Preview("Split Navigation") {
-    ContentView(contentStyle: .centeredTitle)
-}
-
-#Preview("Split Navigation Horizontal Scroll") {
-    ContentView(contentStyle: .horizontalScroll)
-}
+#endif

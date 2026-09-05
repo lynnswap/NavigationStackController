@@ -21,43 +21,15 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  swift-62-tests:
-    name: Package Tests (macOS 15, Swift 6.2)
-    runs-on: macos-15
+  swift-63-tests:
+    name: Package Tests (macOS 26, Xcode 26.4.1, Swift 6.3)
+    runs-on: macos-26
     timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.4.1.app/Contents/Developer
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Resolve Swift 6.2 Xcode
-        run: |
-          xcode_app="$(ruby <<'RUBY'
-          candidates = Dir["/Applications/Xcode_26*.app"].select { |path| File.directory?(path) }
-
-          def pre_release_xcode_path?(path)
-            labels = [path, File.realpath(path)].map { |candidate| File.basename(candidate).downcase }
-            labels.any? do |label|
-              label.match?(/beta|release[ _-]?candidate|(?:^|[_. -])rc(?:$|[_. -])/)
-            end
-          end
-
-          def version_components(path)
-            version = File.basename(path)[/Xcode_(\d+(?:\.\d+)*)/, 1]
-            version.to_s.split(".").map(&:to_i)
-          end
-
-          matches = candidates.reject { |path| pre_release_xcode_path?(path) }.select do |path|
-            swift = `DEVELOPER_DIR="#{path}/Contents/Developer" swift --version 2>/dev/null`
-            swift.include?("Apple Swift version 6.2")
-          end
-
-          selected = matches.max_by { |path| version_components(path) }
-          abort("No stable Xcode with Apple Swift 6.2 found") unless selected
-          puts selected
-          RUBY
-          )"
-          echo "DEVELOPER_DIR=${xcode_app}/Contents/Developer" >> "$GITHUB_ENV"
-          echo "Resolved Xcode: ${xcode_app}"
 
       - name: Show Xcode environment
         run: |
@@ -65,16 +37,16 @@ jobs:
           swift --version
           xcodebuild -showsdks
 
-      - name: Verify Swift 6.2
+      - name: Verify Swift 6.3
         run: |
-          swift --version | grep -E 'Apple Swift version 6\.2'
+          swift --version | grep -E '^Apple Swift version 6\.3([. ]|$)'
 
       - name: Run Swift package tests
         run: |
           swift test
 
   latest-macos-tests:
-    name: Package Tests (macOS 26, Latest Xcode)
+    name: Package Tests (macOS and iOS, Latest Xcode)
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -122,3 +94,24 @@ jobs:
       - name: Run Swift package tests
         run: |
           swift test
+
+      - name: Run UIKit package and consumer tests
+        run: |
+          simulator_id="$(xcrun simctl create "NavigationStackController CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17)"
+          trap 'xcrun simctl delete "$simulator_id"' EXIT
+
+          destination="platform=iOS Simulator,id=${simulator_id}"
+          ./Tools/test-uikit.sh "$destination"
+
+          cd Tools/UIKitConsumer
+          xcodebuild -scheme UIKitConsumer -testPlan UIKitConsumer \
+            -destination "$destination" test
+
+      - name: Verify obfuscated navigation runtime names
+        run: |
+          xcodebuild -project Tools/MiniApp/MiniApp.xcodeproj -scheme MiniApp \
+            -configuration Release -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/navigation-stack-release" \
+            CODE_SIGNING_ALLOWED=NO build
+          python3 Tools/check-private-symbols.py \
+            "$RUNNER_TEMP/navigation-stack-release/Build/Products/Release-iphonesimulator/MiniApp.app"

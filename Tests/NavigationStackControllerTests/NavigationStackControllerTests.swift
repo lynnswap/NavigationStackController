@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import Testing
 @testable import NavigationStackController
@@ -998,3 +999,5 @@ private final class TestScrollWheelEvent: NSEvent {
         eventMomentumPhase
     }
 }
+
+#endif
