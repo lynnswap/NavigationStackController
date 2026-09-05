@@ -170,10 +170,17 @@ struct UIKitNavigationStackControllerTests {
             navigation.clearForwardHistory()
         }
         history.onWillShow = attemptReentrantMutation
-        history.onDidShow = attemptReentrantMutation
         history.onHistoryChange = attemptReentrantMutation
 
-        navigation.pushViewController(first, animated: false)
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            history.onDidShow = {
+                attemptReentrantMutation()
+                history.onDidShow = nil
+                continuation.resume()
+            }
+            navigation.pushViewController(first, animated: false)
+            navigation.view.layoutIfNeeded()
+        }
 
         #expect(ids(navigation.viewControllers) == ids([root, first]))
         #expect(rejected.parent == nil)
@@ -226,6 +233,7 @@ struct UIKitNavigationStackControllerTests {
         let priorForward = ids(navigation.forwardViewControllers)
 
         let driver = try #require(navigation.beginInteractiveNavigation(operation))
+        navigation.view.layoutIfNeeded()
         #expect(navigation.isTransitioning)
         #expect(ids(navigation.forwardViewControllers) == priorForward)
 
@@ -274,6 +282,7 @@ struct UIKitNavigationStackControllerTests {
             visible.onDidAppear = { continuation.resume() }
             window.rootViewController = navigation
             window.makeKeyAndVisible()
+            navigation.view.layoutIfNeeded()
             window.layoutIfNeeded()
         }
         return window
