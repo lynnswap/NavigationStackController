@@ -4,6 +4,9 @@ A navigation container with back/forward history for UIKit and AppKit.
 
 On iOS, `NavigationStackController` subclasses `UINavigationController` and adds retained forward history and overlapping, interactive transitions. On macOS, it contains `NSViewController` pages and supports trackpad swipe navigation.
 
+> [!WARNING]
+> The UIKit implementation relies on undocumented APIs and runtime behavior. It may break with OS updates, and apps using it may be rejected during App Store review.
+
 ## Requirements
 
 - Swift 6.3+
