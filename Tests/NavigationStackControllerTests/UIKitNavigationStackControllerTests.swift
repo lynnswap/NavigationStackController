@@ -289,7 +289,6 @@ struct UIKitNavigationStackControllerTests {
         let second = UIKitTestViewController()
         let rejected = UIKitTestViewController()
         let navigation = NavigationStackController(rootViewController: root)
-        navigation.transitionDuration = 0.05
         navigation.setViewControllers([root, first, second], animated: false)
         if operation == .forward {
             _ = navigation.popViewController(animated: false)

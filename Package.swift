@@ -24,7 +24,14 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "NavigationStackController",
+            dependencies: [
+                .target(name: "NavigationStackControllerRuntime", condition: .when(platforms: [.iOS])),
+            ],
             swiftSettings: strictSwiftSettings
+        ),
+        .target(
+            name: "NavigationStackControllerRuntime",
+            linkerSettings: [.linkedFramework("UIKit", .when(platforms: [.iOS]))]
         ),
         .testTarget(
             name: "NavigationStackControllerTests",

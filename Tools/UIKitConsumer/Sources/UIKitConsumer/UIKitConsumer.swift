@@ -9,8 +9,6 @@ public enum UIKitConsumer {
 
         let navigation = NavigationStackController(rootViewController: root)
         navigation.allowsBackForwardNavigationGestures = true
-        navigation.transitionDuration = 0.25
-        navigation.parallaxFactor = 0.28
         navigation.swipeCompletionDistance = 187.5
         navigation.maximumSwipeCompletionThreshold = 0.5
         navigation.swipeKineticProjectionDuration = 0.3

@@ -26,13 +26,13 @@ navigation.goForward(animated: true)
 
 Use the controller as a window's root view controller, inside a tab or split view controller, or as a child of your own container. UIKit continues to manage containment, each page's `navigationItem`, and the navigation bar. Hide the bar with the standard `setNavigationBarHidden(_:animated:)` API.
 
-Horizontal content swipes navigate in both directions. The gestures respect right-to-left layout and give nested horizontal scroll views priority when those views can scroll in the requested direction. Navigation uses overlapping pages, parallax, shading, and a shadow; Reduce Motion changes the transition to a fade.
+Horizontal content swipes navigate in both directions. The gestures respect right-to-left layout and give nested horizontal scroll views priority when those views can scroll in the requested direction. UIKit's navigation animator owns the overlapping pages, adaptive corner clipping, shading, shadow, and transition timing.
 
 ```swift
 navigation.allowsBackForwardNavigationGestures = true // Default
-navigation.transitionDuration = 0.25
-navigation.parallaxFactor = 0.28
 ```
+
+The UIKit implementation uses the private `_UINavigationParallaxTransition` class, also used by WebKit for swipe navigation. A small Objective-C implementation target constructs the native animator directly so UIKit can use its internal transition protocols. This depends on undocumented UIKit behavior; an incompatible OS change can cause a link or runtime failure. There is no substitute animator. The `transitionDuration` and `parallaxFactor` settings apply only to the AppKit implementation.
 
 The library owns the native navigation delegate and back gesture recognizers. Use `navigationStackDelegate` for notifications; replacing `UINavigationController.delegate` is unsupported and rejected even through a base-class reference.
 

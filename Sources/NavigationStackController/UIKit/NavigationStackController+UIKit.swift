@@ -1,6 +1,7 @@
 #if canImport(UIKit)
 import UIKit
 import os
+internal import NavigationStackControllerRuntime
 
 /// Receives display and committed-history notifications from a navigation stack.
 @MainActor
@@ -53,10 +54,6 @@ public final class NavigationStackController: UINavigationController {
         }
     }
 
-    /// The duration of noninteractive navigation animations, in seconds.
-    public var transitionDuration: TimeInterval = 0.25
-    /// The fraction of the width traversed by the background page during an overlapping transition.
-    public var parallaxFactor: CGFloat = 0.28
     /// The baseline swipe commit distance, in points.
     public var swipeCompletionDistance: CGFloat = 187.5
     /// The fraction of the width that caps the swipe commit distance.
@@ -355,9 +352,7 @@ private final class NavigationStackNativeDelegate: NSObject, UINavigationControl
     func navigationController(_ navigationController: UINavigationController,
                               animationControllerFor operation: UINavigationController.Operation,
                               from fromVC: UIViewController, to toVC: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
-        guard let controller else { return nil }
-        return NavigationStackAnimator(operation: operation, duration: controller.transitionDuration,
-                                       parallaxFactor: controller.parallaxFactor)
+        makeNavigationAnimator(operation: operation)
     }
 
     func navigationController(_ navigationController: UINavigationController,
