@@ -153,16 +153,14 @@ struct UIKitNavigationStackControllerTests {
     }
 
     @Test
-    func standardAndHistoryDelegatesReceiveCallbacksWithReentrantCommandsIgnored() async {
+    func historyDelegateReceivesCallbacksWithReentrantCommandsIgnored() async {
         let root = UIKitTestViewController()
         let first = UIKitTestViewController()
         let rejected = UIKitTestViewController()
         let navigation = NavigationStackController(rootViewController: root)
         let window = await show(navigation, visible: root)
         defer { close(window) }
-        let standard = UIKitNativeObserver()
         let history = UIKitHistoryObserver()
-        navigation.delegate = standard
         navigation.navigationStackDelegate = history
 
         let attemptReentrantMutation: () -> Void = {
@@ -171,8 +169,6 @@ struct UIKitNavigationStackControllerTests {
             navigation.setViewControllers([rejected], animated: false)
             navigation.clearForwardHistory()
         }
-        standard.onWillShow = { _ in attemptReentrantMutation() }
-        standard.onDidShow = { _ in attemptReentrantMutation() }
         history.onWillShow = attemptReentrantMutation
         history.onDidShow = attemptReentrantMutation
         history.onHistoryChange = attemptReentrantMutation
@@ -181,13 +177,30 @@ struct UIKitNavigationStackControllerTests {
 
         #expect(ids(navigation.viewControllers) == ids([root, first]))
         #expect(rejected.parent == nil)
-        #expect(standard.willShowIDs == ids([first]))
-        #expect(standard.didShowIDs == ids([first]))
         #expect(history.willShowOperations == [.push])
         #expect(history.didShowOperations == [.push])
         #expect(history.historyChangeCount == 1)
-        #expect(navigation.delegate === standard)
         #expect(!navigation.isTransitioning)
+    }
+
+    @Test
+    func nativeDelegateOwnerSurvivesReplacementThroughBaseClass() throws {
+        let root = UIKitTestViewController()
+        let first = UIKitTestViewController()
+        let navigation = NavigationStackController(rootViewController: root)
+        let native: UINavigationController = navigation
+        let owner = try #require(native.delegate)
+        let replacement = UIKitNativeObserver()
+
+        native.delegate = replacement
+        #expect(native.delegate === owner)
+        native.delegate = nil
+        #expect(native.delegate === owner)
+
+        native.pushViewController(first, animated: false)
+        #expect(native.popViewController(animated: false) === first)
+        #expect(navigation.forwardViewControllers.first === first)
+        #expect(navigation.goForward(animated: false) === first)
     }
 
     @Test(arguments: [NavigationStackOperation.back, .forward], [false, true])
@@ -208,9 +221,7 @@ struct UIKitNavigationStackControllerTests {
         let initiallyVisible = operation == .back ? second : first
         let window = await show(navigation, visible: initiallyVisible)
         defer { close(window) }
-        let observer = UIKitNativeObserver()
         let history = UIKitHistoryObserver()
-        navigation.delegate = observer
         navigation.navigationStackDelegate = history
         let priorForward = ids(navigation.forwardViewControllers)
 
@@ -229,8 +240,8 @@ struct UIKitNavigationStackControllerTests {
         #expect(rejected.parent == nil)
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            observer.onDidShow = { _ in
-                observer.onDidShow = nil
+            history.onDidShow = {
+                history.onDidShow = nil
                 continuation.resume()
             }
             driver.update(0.6)
@@ -296,30 +307,7 @@ private final class UIKitTestViewController: UIViewController {
 }
 
 @MainActor
-private final class UIKitNativeObserver: NSObject, UINavigationControllerDelegate {
-    var willShowIDs: [ObjectIdentifier] = []
-    var didShowIDs: [ObjectIdentifier] = []
-    var onWillShow: ((UIViewController) -> Void)?
-    var onDidShow: ((UIViewController) -> Void)?
-
-    func navigationController(
-        _ navigationController: UINavigationController,
-        willShow viewController: UIViewController,
-        animated: Bool
-    ) {
-        willShowIDs.append(ObjectIdentifier(viewController))
-        onWillShow?(viewController)
-    }
-
-    func navigationController(
-        _ navigationController: UINavigationController,
-        didShow viewController: UIViewController,
-        animated: Bool
-    ) {
-        didShowIDs.append(ObjectIdentifier(viewController))
-        onDidShow?(viewController)
-    }
-}
+private final class UIKitNativeObserver: NSObject, UINavigationControllerDelegate {}
 
 @MainActor
 private final class UIKitHistoryObserver: NavigationStackControllerDelegate {

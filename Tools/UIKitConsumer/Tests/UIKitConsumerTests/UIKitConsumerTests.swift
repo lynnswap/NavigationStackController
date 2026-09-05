@@ -12,7 +12,6 @@ struct UIKitConsumerTests {
         let document = UIViewController()
         document.title = "Document"
         let observer = ConsumerNavigationObserver()
-        navigation.delegate = observer
         navigation.navigationStackDelegate = observer
 
         let nativeController: UINavigationController = navigation
@@ -34,13 +33,11 @@ struct UIKitConsumerTests {
         #expect(!navigation.canGoBack)
         #expect(!navigation.canGoForward)
         #expect(observer.historyChangeCount == 5)
-        #expect(navigation.delegate === observer)
         #expect(navigation.navigationStackDelegate === observer)
     }
 }
 
-private final class ConsumerNavigationObserver: NSObject,
-    UINavigationControllerDelegate, NavigationStackControllerDelegate {
+private final class ConsumerNavigationObserver: NavigationStackControllerDelegate {
     var historyChangeCount = 0
 
     func navigationStackController(
@@ -60,10 +57,4 @@ private final class ConsumerNavigationObserver: NSObject,
     func navigationStackControllerDidChangeHistory(_ controller: NavigationStackController) {
         historyChangeCount += 1
     }
-
-    func navigationController(
-        _ navigationController: UINavigationController,
-        didShow viewController: UIViewController,
-        animated: Bool
-    ) {}
 }
