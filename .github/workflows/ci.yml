@@ -46,7 +46,7 @@ jobs:
           swift test
 
   latest-macos-tests:
-    name: Package Tests (macOS 26, Latest Xcode)
+    name: Package Tests (macOS and iOS, Latest Xcode)
     runs-on: macos-26
     timeout-minutes: 60
     env:
@@ -94,3 +94,15 @@ jobs:
       - name: Run Swift package tests
         run: |
           swift test
+
+      - name: Run UIKit package and consumer tests
+        run: |
+          simulator_id="$(xcrun simctl create "NavigationStackController CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17)"
+          trap 'xcrun simctl delete "$simulator_id"' EXIT
+
+          destination="platform=iOS Simulator,id=${simulator_id}"
+          ./Tools/test-uikit.sh "$destination"
+
+          cd Tools/UIKitConsumer
+          xcodebuild -scheme UIKitConsumer -testPlan UIKitConsumer \
+            -destination "$destination" test
