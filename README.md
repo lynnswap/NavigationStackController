@@ -61,6 +61,8 @@ navigation.navigationStackDelegate = observer
 
 Delegate references are weak. All delegate methods have default implementations. Display notifications describe presentation; `navigationStackControllerDidChangeHistory` describes successful history changes, including changes made before the view is displayed.
 
+Implement `navigationStackControllerSupportedInterfaceOrientations(_:)` and `navigationStackControllerPreferredInterfaceOrientationForPresentation(_:)` to customize orientation policy without replacing the internal navigation delegate. Both return optional values; the default `nil` preserves UIKit's native policy. When the supported orientations change, use the inherited `setNeedsUpdateOfSupportedInterfaceOrientations()` method to request reevaluation. Navigation requests made inside these callbacks are ignored, just as they are inside display/history notifications.
+
 ## History behavior
 
 - `viewControllers` contains the root through the current top controller.

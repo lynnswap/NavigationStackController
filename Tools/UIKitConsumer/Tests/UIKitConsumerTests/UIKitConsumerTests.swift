@@ -15,6 +15,8 @@ struct UIKitConsumerTests {
         navigation.navigationStackDelegate = observer
 
         let nativeController: UINavigationController = navigation
+        #expect(nativeController.supportedInterfaceOrientations == .portrait)
+        #expect(nativeController.preferredInterfaceOrientationForPresentation == .portrait)
         nativeController.pushViewController(document, animated: false)
         #expect(document.navigationController === nativeController)
         #expect(nativeController.topViewController === document)
@@ -39,6 +41,14 @@ struct UIKitConsumerTests {
 
 private final class ConsumerNavigationObserver: NavigationStackControllerDelegate {
     var historyChangeCount = 0
+
+    func navigationStackControllerSupportedInterfaceOrientations(_ controller: NavigationStackController) -> UIInterfaceOrientationMask? {
+        .portrait
+    }
+
+    func navigationStackControllerPreferredInterfaceOrientationForPresentation(_ controller: NavigationStackController) -> UIInterfaceOrientation? {
+        .portrait
+    }
 
     func navigationStackController(
         _ controller: NavigationStackController,

@@ -11,12 +11,18 @@ public protocol NavigationStackControllerDelegate: AnyObject {
     func navigationStackController(_ controller: NavigationStackController, didShow viewController: UIViewController, operation: NavigationStackOperation, animated: Bool)
     /// Called after a successful navigation or explicit forward-history removal.
     func navigationStackControllerDidChangeHistory(_ controller: NavigationStackController)
+    /// Return an orientation mask, or nil to use UIKit's default policy.
+    func navigationStackControllerSupportedInterfaceOrientations(_ controller: NavigationStackController) -> UIInterfaceOrientationMask?
+    /// Return the preferred presentation orientation, or nil to use UIKit's default policy.
+    func navigationStackControllerPreferredInterfaceOrientationForPresentation(_ controller: NavigationStackController) -> UIInterfaceOrientation?
 }
 
 public extension NavigationStackControllerDelegate {
     func navigationStackController(_ controller: NavigationStackController, willShow viewController: UIViewController, operation: NavigationStackOperation, animated: Bool) {}
     func navigationStackController(_ controller: NavigationStackController, didShow viewController: UIViewController, operation: NavigationStackOperation, animated: Bool) {}
     func navigationStackControllerDidChangeHistory(_ controller: NavigationStackController) {}
+    func navigationStackControllerSupportedInterfaceOrientations(_ controller: NavigationStackController) -> UIInterfaceOrientationMask? { nil }
+    func navigationStackControllerPreferredInterfaceOrientationForPresentation(_ controller: NavigationStackController) -> UIInterfaceOrientation? { nil }
 }
 
 /// A UIKit navigation controller with retained back/forward history and interactive swipe navigation.
@@ -73,6 +79,18 @@ public final class NavigationStackController: UINavigationController {
         }
     }
 
+    public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        withDelegateCallback {
+            navigationStackDelegate?.navigationStackControllerSupportedInterfaceOrientations(self)
+        } ?? super.supportedInterfaceOrientations
+    }
+
+    public override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        withDelegateCallback {
+            navigationStackDelegate?.navigationStackControllerPreferredInterfaceOrientationForPresentation(self)
+        } ?? super.preferredInterfaceOrientationForPresentation
+    }
+
     /// Assigning this property is equivalent to replacing the stack without animation.
     public override var viewControllers: [UIViewController] {
         get { super.viewControllers }
@@ -81,7 +99,7 @@ public final class NavigationStackController: UINavigationController {
 
     private static let logger = Logger(subsystem: "NavigationStackController", category: "UIKit")
     private var isConfigured = false
-    private var notificationDepth = 0
+    private var delegateCallbackDepth = 0
     private var pendingNavigation: PendingNavigation?
     private lazy var nativeDelegate = NavigationStackNativeDelegate(controller: self)
     private lazy var gestureController = NavigationStackGestureController(navigationController: self)
@@ -93,7 +111,7 @@ public final class NavigationStackController: UINavigationController {
     }
 
     private var canStartNavigation: Bool {
-        notificationDepth == 0 && !isTransitioning
+        delegateCallbackDepth == 0 && !isTransitioning
     }
 
     public override init(rootViewController: UIViewController) {
@@ -212,7 +230,7 @@ public final class NavigationStackController: UINavigationController {
     public func clearForwardHistory() {
         guard canStartNavigation, !forwardViewControllers.isEmpty else { return }
         forwardViewControllers.removeAll()
-        notify { navigationStackDelegate?.navigationStackControllerDidChangeHistory(self) }
+        withDelegateCallback { navigationStackDelegate?.navigationStackControllerDidChangeHistory(self) }
     }
 
     func beginInteractiveNavigation(_ operation: NavigationStackOperation) -> UIPercentDrivenInteractiveTransition? {
@@ -278,28 +296,28 @@ public final class NavigationStackController: UINavigationController {
         pendingNavigation = nil
         if succeeded {
             forwardViewControllers = transaction.forwardHistory
-            notify { navigationStackDelegate?.navigationStackControllerDidChangeHistory(self) }
+            withDelegateCallback { navigationStackDelegate?.navigationStackControllerDidChangeHistory(self) }
         }
         if isViewLoaded {
             gestureController.install()
         }
         if let shownViewController {
-            notify {
+            withDelegateCallback {
                 navigationStackDelegate?.navigationStackController(self, didShow: shownViewController,
                                                                   operation: transaction.operation, animated: animated)
             }
         }
     }
 
-    private func notify(_ body: () -> Void) {
-        notificationDepth += 1
-        defer { notificationDepth -= 1 }
-        body()
+    private func withDelegateCallback<Result>(_ body: () -> Result) -> Result {
+        delegateCallbackDepth += 1
+        defer { delegateCallbackDepth -= 1 }
+        return body()
     }
 
     fileprivate func willShow(_ viewController: UIViewController, animated: Bool) {
         guard let transaction = pendingNavigation, viewController === transaction.destination else { return }
-        notify {
+        withDelegateCallback {
             navigationStackDelegate?.navigationStackController(self, willShow: viewController,
                                                               operation: transaction.operation, animated: animated)
         }

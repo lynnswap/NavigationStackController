@@ -236,6 +236,80 @@ struct UIKitNavigationStackControllerTests {
     }
 
     @Test
+    func orientationDefaultsMatchNativeNavigationPolicy() {
+        let navigation = NavigationStackController(rootViewController: UIKitTestViewController())
+        let native: UINavigationController = navigation
+        let reference = UINavigationController(rootViewController: UIKitTestViewController())
+
+        #expect(native.supportedInterfaceOrientations == reference.supportedInterfaceOrientations)
+        #expect(native.preferredInterfaceOrientationForPresentation == reference.preferredInterfaceOrientationForPresentation)
+
+        let defaultObserver = UIKitHistoryObserver()
+        navigation.navigationStackDelegate = defaultObserver
+        #expect(native.supportedInterfaceOrientations == reference.supportedInterfaceOrientations)
+        #expect(native.preferredInterfaceOrientationForPresentation == reference.preferredInterfaceOrientationForPresentation)
+
+        let nilObserver = UIKitOrientationObserver()
+        navigation.navigationStackDelegate = nilObserver
+        #expect(native.supportedInterfaceOrientations == reference.supportedInterfaceOrientations)
+        #expect(native.preferredInterfaceOrientationForPresentation == reference.preferredInterfaceOrientationForPresentation)
+    }
+
+    @Test
+    func orientationDelegateValuesAreReadForEachQuery() {
+        let navigation = NavigationStackController(rootViewController: UIKitTestViewController())
+        let native: UINavigationController = navigation
+        let observer = UIKitOrientationObserver()
+        navigation.navigationStackDelegate = observer
+
+        observer.supportedOrientations = .portrait
+        observer.preferredOrientation = .portrait
+        #expect(native.supportedInterfaceOrientations == .portrait)
+        #expect(native.preferredInterfaceOrientationForPresentation == .portrait)
+
+        observer.supportedOrientations = .landscape
+        observer.preferredOrientation = .landscapeRight
+        #expect(native.supportedInterfaceOrientations == .landscape)
+        #expect(native.preferredInterfaceOrientationForPresentation == .landscapeRight)
+
+        navigation.navigationStackDelegate = nil
+        let reference = UINavigationController(rootViewController: UIKitTestViewController())
+        #expect(native.supportedInterfaceOrientations == reference.supportedInterfaceOrientations)
+        #expect(native.preferredInterfaceOrientationForPresentation == reference.preferredInterfaceOrientationForPresentation)
+    }
+
+    @Test(arguments: [false, true])
+    func orientationQueriesIgnoreReentrantNavigation(preferred: Bool) {
+        let root = UIKitTestViewController()
+        let page = UIKitTestViewController()
+        let rejected = UIKitTestViewController()
+        let navigation = NavigationStackController(rootViewController: root)
+        navigation.pushViewController(page, animated: false)
+        _ = navigation.goBack(animated: false)
+        let observer = UIKitOrientationObserver()
+        navigation.navigationStackDelegate = observer
+        observer.onQuery = {
+            navigation.pushViewController(rejected, animated: false)
+            _ = navigation.goForward(animated: false)
+            navigation.setViewControllers([rejected], animated: false)
+            navigation.clearForwardHistory()
+        }
+
+        if preferred {
+            _ = navigation.preferredInterfaceOrientationForPresentation
+        } else {
+            _ = navigation.supportedInterfaceOrientations
+        }
+        #expect(ids(navigation.viewControllers) == ids([root]))
+        #expect(ids(navigation.forwardViewControllers) == ids([page]))
+        #expect(rejected.parent == nil)
+        #expect(!navigation.isTransitioning)
+
+        observer.onQuery = nil
+        #expect(navigation.goForward(animated: false) === page)
+    }
+
+    @Test
     func creatingAnAnimatorDoesNotRetainItBeyondTheCallerLifetime() throws {
         let root = UIKitTestViewController()
         let next = UIKitTestViewController()
@@ -407,6 +481,23 @@ private final class UIKitTestViewController: UIViewController {
         let completion = onDidAppear
         onDidAppear = nil
         completion?()
+    }
+}
+
+@MainActor
+private final class UIKitOrientationObserver: NavigationStackControllerDelegate {
+    var supportedOrientations: UIInterfaceOrientationMask?
+    var preferredOrientation: UIInterfaceOrientation?
+    var onQuery: (() -> Void)?
+
+    func navigationStackControllerSupportedInterfaceOrientations(_ controller: NavigationStackController) -> UIInterfaceOrientationMask? {
+        onQuery?()
+        return supportedOrientations
+    }
+
+    func navigationStackControllerPreferredInterfaceOrientationForPresentation(_ controller: NavigationStackController) -> UIInterfaceOrientation? {
+        onQuery?()
+        return preferredOrientation
     }
 }
 
