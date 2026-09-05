@@ -49,7 +49,7 @@ The build uses generic destinations and does not boot a Simulator. It treats Doc
 
 UIKit and AppKit references are built separately: their same-named APIs have different types and contracts. The site offers both under `uikit/` and `appkit/`.
 
-The Documentation workflow validates pull requests and deploys successful `main` pushes to GitHub Pages. It also supports manual runs; deployment is restricted to `main`. In repository Settings → Pages, the publishing source must be **GitHub Actions**. The hosted README link becomes available after the first successful deployment.
+The Deploy documentation workflow builds and validates documentation on `main` pushes, then publishes successful builds to GitHub Pages. It also supports manual runs from `main`. Pull requests do not run the documentation workflow. In repository Settings → Pages, the publishing source must be **GitHub Actions**. The hosted README link becomes available after the first successful deployment.
 
 ## Example app
 
