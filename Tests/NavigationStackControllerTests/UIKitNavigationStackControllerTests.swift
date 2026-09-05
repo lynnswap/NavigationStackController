@@ -236,6 +236,26 @@ struct UIKitNavigationStackControllerTests {
     }
 
     @Test
+    func creatingAnAnimatorDoesNotRetainItBeyondTheCallerLifetime() throws {
+        let root = UIKitTestViewController()
+        let next = UIKitTestViewController()
+        let navigation = NavigationStackController(rootViewController: root)
+        let native: UINavigationController = navigation
+        let delegate = try #require(native.delegate)
+        weak var releasedAnimator: (any UIViewControllerAnimatedTransitioning)?
+
+        autoreleasepool {
+            let animator = delegate.navigationController?(
+                native, animationControllerFor: .push, from: root, to: next
+            )
+            releasedAnimator = animator
+            #expect(releasedAnimator != nil)
+        }
+
+        #expect(releasedAnimator == nil)
+    }
+
+    @Test
     func nativeDelegateOwnerSurvivesReplacementThroughBaseClass() throws {
         let root = UIKitTestViewController()
         let first = UIKitTestViewController()

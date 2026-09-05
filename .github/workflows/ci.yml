@@ -106,3 +106,12 @@ jobs:
           cd Tools/UIKitConsumer
           xcodebuild -scheme UIKitConsumer -testPlan UIKitConsumer \
             -destination "$destination" test
+
+      - name: Verify obfuscated navigation runtime names
+        run: |
+          xcodebuild -project Tools/MiniApp/MiniApp.xcodeproj -scheme MiniApp \
+            -configuration Release -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/navigation-stack-release" \
+            CODE_SIGNING_ALLOWED=NO build
+          python3 Tools/check-private-symbols.py \
+            "$RUNNER_TEMP/navigation-stack-release/Build/Products/Release-iphonesimulator/MiniApp.app"

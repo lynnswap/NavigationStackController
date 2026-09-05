@@ -32,7 +32,7 @@ Horizontal content swipes navigate in both directions. The gestures respect righ
 navigation.allowsBackForwardNavigationGestures = true // Default
 ```
 
-The UIKit implementation uses the private `_UINavigationParallaxTransition` class, also used by WebKit for swipe navigation. A small Objective-C implementation target constructs the native animator directly so UIKit can use its internal transition protocols. This depends on undocumented UIKit behavior; an incompatible OS change can cause a link or runtime failure. There is no substitute animator. The `transitionDuration` and `parallaxFactor` settings apply only to the AppKit implementation.
+The UIKit implementation uses the private `_UINavigationParallaxTransition` class, also used by WebKit for swipe navigation. A small Objective-C implementation target resolves the class and selectors from XOR-encoded byte arrays at runtime, then returns the native animator so UIKit can use its internal transition protocols. Private names are not stored as plaintext runtime references in the compiled artifact; `Tools/check-private-symbols.py` checks Release artifacts in CI. This depends on undocumented UIKit behavior; missing runtime entry points raise an exception and incompatible ABI changes can cause a runtime failure. There is no substitute animator. The `transitionDuration` and `parallaxFactor` settings apply only to the AppKit implementation.
 
 The library owns the native navigation delegate and back gesture recognizers. Use `navigationStackDelegate` for notifications; replacing `UINavigationController.delegate` is unsupported and rejected even through a base-class reference.
 
