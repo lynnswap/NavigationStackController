@@ -12,8 +12,6 @@ NavigationStackController provides a browser-style page history with interactive
 
 The package requires Swift 6.3 or later.
 
-> Warning: This package relies on undocumented APIs and runtime behavior, so extra care is needed before using it in App Store-bound projects.
-
 ## Platforms
 
 @Row {
