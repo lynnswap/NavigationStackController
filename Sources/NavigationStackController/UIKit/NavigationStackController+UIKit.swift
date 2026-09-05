@@ -38,7 +38,8 @@ public final class NavigationStackController: UINavigationController {
     public private(set) var forwardViewControllers: [UIViewController] = []
 
     public var canGoBack: Bool { viewControllers.count > 1 }
-    public var canGoForward: Bool { !forwardViewControllers.isEmpty }
+    /// Whether the next forward controller is available for containment here.
+    public var canGoForward: Bool { nextForwardViewController != nil }
 
     /// Whether a navigation or another UIKit transition currently prevents a new request.
     public var isTransitioning: Bool { pendingNavigation != nil || transitionCoordinator != nil }
@@ -87,6 +88,12 @@ public final class NavigationStackController: UINavigationController {
     private var pendingNavigation: PendingNavigation?
     private lazy var nativeDelegate = NavigationStackNativeDelegate(controller: self)
     private lazy var gestureController = NavigationStackGestureController(navigationController: self)
+
+    private var nextForwardViewController: UIViewController? {
+        // A retained forward controller can be adopted by another container while its parent is nil.
+        guard let controller = forwardViewControllers.first, controller.parent == nil else { return nil }
+        return controller
+    }
 
     private var canStartNavigation: Bool {
         notificationDepth == 0 && !isTransitioning
@@ -150,7 +157,7 @@ public final class NavigationStackController: UINavigationController {
             return
         }
         guard canStartNavigation, let destination = viewControllers.last, isValidStack(viewControllers) else { return }
-        guard !Self.sameInstances(self.viewControllers, viewControllers) || canGoForward else { return }
+        guard !Self.sameInstances(self.viewControllers, viewControllers) || !forwardViewControllers.isEmpty else { return }
 
         navigate(to: destination, stack: viewControllers, operation: .set, forwardHistory: [], animated: animated)
     }
@@ -198,7 +205,7 @@ public final class NavigationStackController: UINavigationController {
     /// admission, not animation completion. Observe ``navigationStackDelegate`` for completion.
     @discardableResult
     public func goForward(animated: Bool) -> UIViewController? {
-        guard canStartNavigation, let destination = forwardViewControllers.first else { return nil }
+        guard canStartNavigation, let destination = nextForwardViewController else { return nil }
         navigate(to: destination, stack: viewControllers + [destination], operation: .forward,
                  forwardHistory: Array(forwardViewControllers.dropFirst()), animated: animated)
         return destination
@@ -222,7 +229,7 @@ public final class NavigationStackController: UINavigationController {
             navigate(to: viewControllers[viewControllers.count - 2], stack: Array(viewControllers.dropLast()), operation: .back,
                      forwardHistory: [outgoing] + forwardViewControllers, animated: true, interaction: interaction)
         case .forward:
-            guard let destination = forwardViewControllers.first else { return nil }
+            guard let destination = nextForwardViewController else { return nil }
             navigate(to: destination, stack: viewControllers + [destination], operation: .forward,
                      forwardHistory: Array(forwardViewControllers.dropFirst()), animated: true, interaction: interaction)
         case .push, .set:

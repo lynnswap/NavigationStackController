@@ -69,7 +69,7 @@ Delegate references are weak. All delegate methods have default implementations.
 - `goBack(animated:)` and `popViewController(animated:)` move the top controller into forward history.
 - `goForward(animated:)` restores the same controller instance and preserves the remaining forward history.
 - On UIKit, `popToViewController(_:animated:)` and `popToRootViewController(animated:)` preserve removed controllers in their original visitation order.
-- UIKit forward controllers are strongly retained but no longer children of the navigation controller. `clearForwardHistory()` releases the library's references.
+- UIKit forward controllers are strongly retained but no longer children of the navigation controller. `clearForwardHistory()` releases the library's references. If another container adopts the next forward controller, `canGoForward` becomes false and both forward entry points ignore the request until that controller is detached; later history entries are not skipped.
 - Interactive cancellation preserves forward history. UIKit's native stack can reflect the tentative destination while a transition is active.
 - On UIKit, `isTransitioning` indicates that a new navigation request cannot start. Requests during a transition or delegate notification are ignored.
 - On UIKit, duplicate controller instances, already-parented new controllers, and empty stack replacements are ignored. Use forward navigation to revisit a controller already in forward history.

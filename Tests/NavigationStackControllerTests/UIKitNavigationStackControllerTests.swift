@@ -134,6 +134,51 @@ struct UIKitNavigationStackControllerTests {
     }
 
     @Test
+    func forwardNavigationRevalidatesTheRetainedControllersParent() async {
+        let root = UIKitTestViewController()
+        let first = UIKitTestViewController()
+        let second = UIKitTestViewController()
+        let navigation = NavigationStackController(rootViewController: root)
+        navigation.setViewControllers([root, first, second], animated: false)
+        _ = navigation.popToRootViewController(animated: false)
+        let other = UINavigationController(rootViewController: UIKitTestViewController())
+        other.pushViewController(first, animated: false)
+        let window = await show(navigation, visible: root)
+        defer { close(window) }
+
+        #expect(!navigation.canGoForward)
+        #expect(navigation.goForward(animated: false) == nil)
+        #expect(navigation.beginInteractiveNavigation(.forward) == nil)
+        #expect(ids(navigation.viewControllers) == ids([root]))
+        #expect(ids(navigation.forwardViewControllers) == ids([first, second]))
+        #expect(other.topViewController === first)
+        #expect(!navigation.isTransitioning)
+
+        _ = other.popViewController(animated: false)
+        #expect(navigation.canGoForward)
+        #expect(navigation.goForward(animated: false) === first)
+        navigation.view.layoutIfNeeded()
+        #expect(first.parent === navigation)
+        #expect(ids(navigation.forwardViewControllers) == ids([second]))
+    }
+
+    @Test
+    func sameStackReplacementClearsForwardHistoryEvenWhenItsPageIsUnavailable() {
+        let root = UIKitTestViewController()
+        let page = UIKitTestViewController()
+        let navigation = NavigationStackController(rootViewController: root)
+        navigation.pushViewController(page, animated: false)
+        _ = navigation.popViewController(animated: false)
+        let other = UINavigationController(rootViewController: page)
+
+        #expect(!navigation.canGoForward)
+        navigation.setViewControllers([root], animated: false)
+        #expect(navigation.forwardViewControllers.isEmpty)
+        #expect(other.topViewController === page)
+        #expect(page.parent === other)
+    }
+
+    @Test
     func clearingForwardHistoryReleasesItsControllers() {
         let navigation = NavigationStackController(rootViewController: UIKitTestViewController())
         weak var releasedPage: UIViewController?
