@@ -352,7 +352,7 @@ private final class NavigationStackNativeDelegate: NSObject, UINavigationControl
     func navigationController(_ navigationController: UINavigationController,
                               animationControllerFor operation: UINavigationController.Operation,
                               from fromVC: UIViewController, to toVC: UIViewController) -> (any UIViewControllerAnimatedTransitioning)? {
-        makeNavigationAnimator(operation: operation)
+        makeNavigationAnimator(operation: operation, layoutDirection: navigationController.view.effectiveUserInterfaceLayoutDirection)
     }
 
     func navigationController(_ navigationController: UINavigationController,

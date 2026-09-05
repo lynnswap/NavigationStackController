@@ -4,9 +4,12 @@
 // UIKit's private transition protocols, including its container clipping and navigation-bar coordination.
 @interface _UINavigationParallaxTransition : NSObject <UIViewControllerAnimatedTransitioning>
 - (instancetype)initWithCurrentOperation:(UINavigationControllerOperation)operation;
+- (void)_setShouldReverseLayoutDirection:(BOOL)reverse;
 @end
 
-id<UIViewControllerAnimatedTransitioning> NSCMakeNavigationAnimator(UINavigationControllerOperation operation)
+id<UIViewControllerAnimatedTransitioning> NSCMakeNavigationAnimator(UINavigationControllerOperation operation, UIUserInterfaceLayoutDirection layoutDirection)
 {
-    return [[_UINavigationParallaxTransition alloc] initWithCurrentOperation:operation];
+    _UINavigationParallaxTransition *animator = [[_UINavigationParallaxTransition alloc] initWithCurrentOperation:operation];
+    [animator _setShouldReverseLayoutDirection:layoutDirection == UIUserInterfaceLayoutDirectionRightToLeft];
+    return animator;
 }
