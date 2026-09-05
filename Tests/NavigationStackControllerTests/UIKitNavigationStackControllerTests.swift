@@ -215,6 +215,30 @@ struct UIKitNavigationStackControllerTests {
         operation: NavigationStackOperation,
         completes: Bool
     ) async throws {
+        try await checkInteractiveNavigation(
+            operation: operation,
+            completes: completes,
+            terminalBeforeLayout: false
+        )
+    }
+
+    @Test(arguments: [NavigationStackOperation.back, .forward], [false, true])
+    func interactiveTerminalBeforeNativeLayout(
+        operation: NavigationStackOperation,
+        completes: Bool
+    ) async throws {
+        try await checkInteractiveNavigation(
+            operation: operation,
+            completes: completes,
+            terminalBeforeLayout: true
+        )
+    }
+
+    private func checkInteractiveNavigation(
+        operation: NavigationStackOperation,
+        completes: Bool,
+        terminalBeforeLayout: Bool
+    ) async throws {
         let root = UIKitTestViewController()
         let first = UIKitTestViewController()
         let second = UIKitTestViewController()
@@ -233,7 +257,9 @@ struct UIKitNavigationStackControllerTests {
         let priorForward = ids(navigation.forwardViewControllers)
 
         let driver = try #require(navigation.beginInteractiveNavigation(operation))
-        navigation.view.layoutIfNeeded()
+        if !terminalBeforeLayout {
+            navigation.view.layoutIfNeeded()
+        }
         #expect(navigation.isTransitioning)
         #expect(ids(navigation.forwardViewControllers) == priorForward)
 
@@ -252,11 +278,16 @@ struct UIKitNavigationStackControllerTests {
                 history.onDidShow = nil
                 continuation.resume()
             }
-            driver.update(0.6)
+            if !terminalBeforeLayout {
+                driver.update(0.6)
+            }
             if completes {
                 driver.finish()
             } else {
                 driver.cancel()
+            }
+            if terminalBeforeLayout {
+                navigation.view.layoutIfNeeded()
             }
         }
 
