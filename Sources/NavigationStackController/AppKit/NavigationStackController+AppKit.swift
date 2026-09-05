@@ -7,7 +7,10 @@ enum NavigationStackDirection: Equatable {
     case forward
 }
 
-/// Receives notifications when a navigation stack controller is about to show, or has shown, a view controller.
+/// Receives display notifications from an AppKit navigation stack.
+///
+/// Both methods have default implementations. Navigation requests during `willShow` are ignored.
+/// The delegate can start another navigation from `didShow`. See <doc:History> for notification timing.
 @MainActor
 public protocol NavigationStackControllerDelegate: AnyObject {
     /// Tells the delegate that the navigation stack controller is about to show a view controller.
@@ -21,6 +24,8 @@ public protocol NavigationStackControllerDelegate: AnyObject {
 
     /// Tells the delegate that the navigation stack controller has shown a view controller.
     ///
+    /// After an interactive cancellation, this reports the original page and attempted operation.
+    ///
     /// - Parameters:
     ///   - controller: The navigation stack controller sending the notification.
     ///   - viewController: The view controller that became visible.
@@ -30,7 +35,9 @@ public protocol NavigationStackControllerDelegate: AnyObject {
 }
 
 public extension NavigationStackControllerDelegate {
+    /// Does nothing by default.
     func navigationStackController(_ controller: NavigationStackController, willShow viewController: NSViewController, operation: NavigationStackOperation, animated: Bool) { }
+    /// Does nothing by default.
     func navigationStackController(_ controller: NavigationStackController, didShow viewController: NSViewController, operation: NavigationStackOperation, animated: Bool) { }
 }
 
@@ -43,9 +50,15 @@ public extension NavigationStackControllerDelegate {
 ///
 /// The controller owns AppKit child containment for every view controller in the stack, but installs only
 /// the currently visible view controller's view in its content view when no transition is active.
+///
+/// Navigation requests during transitions or `willShow` callbacks are ignored. Method return values
+/// describe accepted operations, not animation completion. See <doc:AppKitIntegration> for setup
+/// and <doc:History> for history and notification timing.
 @MainActor
 public final class NavigationStackController: NSViewController {
     /// The delegate object that receives navigation display notifications.
+    ///
+    /// This reference is weak. The host must retain the delegate for as long as it is needed.
     public weak var delegate: NavigationStackControllerDelegate?
 
     /// The current back stack, including the root view controller and the top view controller.
@@ -60,7 +73,7 @@ public final class NavigationStackController: NSViewController {
         Array(forwardViewControllerStack.reversed())
     }
 
-    /// A Boolean value that determines whether horizontal trackpad swipes can navigate back and forward.
+    /// Whether horizontal trackpad swipes can navigate back and forward. The default is true.
     public var allowsBackForwardNavigationGestures = true
 
     /// The swipe distance, in points, used as the baseline commit threshold for interactive navigation.
@@ -98,18 +111,22 @@ public final class NavigationStackController: NSViewController {
 
     /// The view controller currently considered visible.
     ///
-    /// During an active transition, this returns the transition's visible endpoint. Otherwise, it returns
-    /// ``topViewController``.
+    /// During a transition, this returns the outgoing page until progress reaches the destination.
+    /// Otherwise, it returns ``topViewController``.
     public var visibleViewController: NSViewController? {
         activeTransition?.visibleViewController ?? topViewController
     }
 
-    /// A Boolean value that indicates whether the controller can move backward in history.
+    /// Whether the back stack contains a page before the current top page.
+    ///
+    /// This does not guarantee that a request can start during a transition or `willShow` callback.
     public var canGoBack: Bool {
         viewControllers.count > 1
     }
 
-    /// A Boolean value that indicates whether the controller can move forward in history.
+    /// Whether forward history contains a page to restore.
+    ///
+    /// This does not guarantee that a request can start during a transition or `willShow` callback.
     public var canGoForward: Bool {
         !forwardViewControllerStack.isEmpty
     }
@@ -152,6 +169,10 @@ public final class NavigationStackController: NSViewController {
     ///
     /// Use ``setViewControllers(_:animated:)`` before presenting the controller, or use
     /// ``init(rootViewController:)`` to create the controller with a root view controller.
+    ///
+    /// - Parameters:
+    ///   - nibNameOrNil: The nib name, or `nil`.
+    ///   - nibBundleOrNil: The bundle containing the nib, or `nil` for AppKit's default lookup.
     public override init(nibName nibNameOrNil: NSNib.Name?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
     }
@@ -163,6 +184,8 @@ public final class NavigationStackController: NSViewController {
     }
 
     /// Creates a navigation stack controller from an archive.
+    ///
+    /// - Parameter coder: The decoder containing the archived controller.
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
     }
@@ -186,11 +209,19 @@ public final class NavigationStackController: NSViewController {
         layoutContentViews()
     }
 
+    /// Indicates whether the container participates in swipe tracking on the requested axis.
+    ///
+    /// - Parameter axis: The gesture axis AppKit is querying.
+    /// - Returns: Whether horizontal swipe tracking is currently available for the requested axis.
     public override func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
         let wants = shouldForwardScrollEventsForSwipeTracking(on: axis)
         return wants
     }
 
+    /// Indicates whether AppKit should forward scroll events for navigation on the requested axis.
+    ///
+    /// - Parameter axis: The gesture axis AppKit is querying.
+    /// - Returns: Whether horizontal swipe tracking is currently available for the requested axis.
     public override func wantsForwardedScrollEvents(for axis: NSEvent.GestureAxis) -> Bool {
         let wants = shouldForwardScrollEventsForSwipeTracking(on: axis)
         return wants
@@ -204,7 +235,10 @@ public final class NavigationStackController: NSViewController {
     /// Replaces the current stack with a new set of view controllers.
     ///
     /// Calling this method clears forward history. The array must contain at least one view controller.
-    /// Calls made during an active transition, or with duplicate view controller instances, are ignored.
+    /// Calls made during an active transition or a `willShow` callback, or with duplicate instances,
+    /// are ignored.
+    ///
+    /// - Precondition: The array is nonempty, including when navigation is currently unavailable.
     ///
     /// - Parameters:
     ///   - newViewControllers: The new stack of view controllers. The last element becomes the top view controller.
@@ -249,8 +283,8 @@ public final class NavigationStackController: NSViewController {
 
     /// Pushes a view controller onto the top of the stack.
     ///
-    /// Pushing a view controller clears forward history. Calls made during an active transition, or with a
-    /// view controller already in back or forward history, are ignored.
+    /// Pushing a view controller clears forward history. Calls made during an active transition or a
+    /// `willShow` callback, or with a view controller already in back or forward history, are ignored.
     ///
     /// - Parameters:
     ///   - viewController: The view controller to push.
@@ -286,7 +320,8 @@ public final class NavigationStackController: NSViewController {
     /// This method is an alias for ``goBack(animated:)``.
     ///
     /// - Parameter animated: A Boolean value indicating whether to animate the transition.
-    /// - Returns: The view controller removed from the top of the stack, or `nil` if the controller cannot go back.
+    /// - Returns: The outgoing page accepted for removal, or `nil` if there is no previous page or
+    ///   a transition or `willShow` callback prevents the request. This does not signal animation completion.
     @discardableResult
     public func popViewController(animated: Bool) -> NSViewController? {
         goBack(animated: animated)
@@ -298,7 +333,9 @@ public final class NavigationStackController: NSViewController {
     /// ``goForward(animated:)``.
     ///
     /// - Parameter animated: A Boolean value indicating whether to animate the transition to the root view controller.
-    /// - Returns: The popped view controllers, in their original stack order.
+    /// - Returns: The pages accepted for removal, in their original stack order. Returns an empty
+    ///   array if there is no previous page or a transition or `willShow` callback prevents the request.
+    ///   This does not signal animation completion.
     @discardableResult
     public func popToRootViewController(animated: Bool) -> [NSViewController] {
         guard viewControllers.count > 1, canStartNavigation else {
@@ -330,7 +367,8 @@ public final class NavigationStackController: NSViewController {
     /// The current top view controller is moved into forward history.
     ///
     /// - Parameter animated: A Boolean value indicating whether to animate the transition.
-    /// - Returns: The view controller that was moved into forward history, or `nil` if the controller cannot go back.
+    /// - Returns: The outgoing page accepted for removal, or `nil` if there is no previous page or
+    ///   a transition or `willShow` callback prevents the request. This does not signal animation completion.
     @discardableResult
     public func goBack(animated: Bool) -> NSViewController? {
         guard canGoBack, canStartNavigation else {
@@ -365,7 +403,8 @@ public final class NavigationStackController: NSViewController {
     /// The restored view controller is appended to the back stack and becomes the top view controller.
     ///
     /// - Parameter animated: A Boolean value indicating whether to animate the transition.
-    /// - Returns: The restored view controller, or `nil` if the controller cannot go forward.
+    /// - Returns: The page accepted for restoration, or `nil` if forward history is empty or a
+    ///   transition or `willShow` callback prevents the request. This does not signal animation completion.
     @discardableResult
     public func goForward(animated: Bool) -> NSViewController? {
         guard canGoForward, canStartNavigation else {

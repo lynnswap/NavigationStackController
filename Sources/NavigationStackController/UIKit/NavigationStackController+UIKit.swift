@@ -3,25 +3,64 @@ import UIKit
 import os
 internal import NavigationStackControllerRuntime
 
-/// Receives display and committed-history notifications from a navigation stack.
+/// Receives navigation notifications and supplies orientation policy for a UIKit navigation stack.
+///
+/// Every method has a default implementation. Navigation requests made inside any delegate callback
+/// are ignored, including orientation queries. See <doc:History> for notification timing.
 @MainActor
 public protocol NavigationStackControllerDelegate: AnyObject {
+    /// Tells the delegate that a page is about to be displayed.
+    ///
+    /// - Parameters:
+    ///   - controller: The navigation controller sending the notification.
+    ///   - viewController: The destination page.
+    ///   - operation: The attempted navigation operation.
+    ///   - animated: Whether the presentation is animated.
     func navigationStackController(_ controller: NavigationStackController, willShow viewController: UIViewController, operation: NavigationStackOperation, animated: Bool)
-    /// A cancelled interactive transition reports its original view controller and attempted operation.
+    /// Tells the delegate which page is displayed after a transition.
+    ///
+    /// A cancelled interactive transition reports the original page and attempted operation.
+    /// Changes that do not present a page need not send this notification; observe
+    /// ``navigationStackControllerDidChangeHistory(_:)`` for committed history.
+    ///
+    /// - Parameters:
+    ///   - controller: The navigation controller sending the notification.
+    ///   - viewController: The page displayed after completion or cancellation.
+    ///   - operation: The attempted navigation operation.
+    ///   - animated: Whether the presentation was animated.
     func navigationStackController(_ controller: NavigationStackController, didShow viewController: UIViewController, operation: NavigationStackOperation, animated: Bool)
-    /// Called after a successful navigation or explicit forward-history removal.
+    /// Tells the delegate that a history change has committed.
+    ///
+    /// This includes navigation before the controller is displayed and explicit removal of nonempty
+    /// forward history. Cancelled interactive transitions do not send this notification.
+    ///
+    /// - Parameter controller: The navigation controller whose history changed.
     func navigationStackControllerDidChangeHistory(_ controller: NavigationStackController)
-    /// Return an orientation mask, or nil to use UIKit's default policy.
+    /// Supplies the supported interface orientations when UIKit queries the controller.
+    ///
+    /// After changing this policy, call the controller's inherited
+    /// `setNeedsUpdateOfSupportedInterfaceOrientations()` method to request reevaluation.
+    ///
+    /// - Parameter controller: The navigation controller requesting the policy.
+    /// - Returns: An orientation mask, or `nil` to preserve UIKit's default policy. The default is `nil`.
     func navigationStackControllerSupportedInterfaceOrientations(_ controller: NavigationStackController) -> UIInterfaceOrientationMask?
-    /// Return the preferred presentation orientation, or nil to use UIKit's default policy.
+    /// Supplies the preferred orientation for presenting the navigation controller.
+    ///
+    /// - Parameter controller: The navigation controller requesting the policy.
+    /// - Returns: The preferred orientation, or `nil` to preserve UIKit's default policy. The default is `nil`.
     func navigationStackControllerPreferredInterfaceOrientationForPresentation(_ controller: NavigationStackController) -> UIInterfaceOrientation?
 }
 
 public extension NavigationStackControllerDelegate {
+    /// The default implementation leaves the notification or policy unchanged.
     func navigationStackController(_ controller: NavigationStackController, willShow viewController: UIViewController, operation: NavigationStackOperation, animated: Bool) {}
+    /// The default implementation leaves the notification or policy unchanged.
     func navigationStackController(_ controller: NavigationStackController, didShow viewController: UIViewController, operation: NavigationStackOperation, animated: Bool) {}
+    /// The default implementation leaves the notification or policy unchanged.
     func navigationStackControllerDidChangeHistory(_ controller: NavigationStackController) {}
+    /// The default implementation leaves the notification or policy unchanged.
     func navigationStackControllerSupportedInterfaceOrientations(_ controller: NavigationStackController) -> UIInterfaceOrientationMask? { nil }
+    /// The default implementation leaves the notification or policy unchanged.
     func navigationStackControllerPreferredInterfaceOrientationForPresentation(_ controller: NavigationStackController) -> UIInterfaceOrientation? { nil }
 }
 
@@ -29,7 +68,8 @@ public extension NavigationStackControllerDelegate {
 ///
 /// UIKit owns the navigation stack, containment, and navigation bar. Popped controllers remain strongly
 /// retained in forward history until revisited, a new controller is pushed, the stack is replaced, or
-/// ``clearForwardHistory()`` is called. Forward controllers are not children of this controller.
+/// ``clearForwardHistory()`` is called. Outside an active transition, forward controllers are not
+/// children of this controller.
 ///
 /// Navigation requests during a transition or delegate notification are ignored. Stack replacement
 /// ignores empty arrays, duplicate instances, and controllers owned by another parent. A new push
@@ -37,15 +77,36 @@ public extension NavigationStackControllerDelegate {
 ///
 /// Use ``navigationStackDelegate`` for notifications. The native navigation delegate is reserved
 /// for the built-in overlapping transitions and must not be replaced.
+///
+/// See <doc:UIKitIntegration> for setup and <doc:History> for history and notification timing.
+///
+/// > Warning: The UIKit implementation relies on undocumented APIs and runtime behavior, so extra care
+/// > is needed before using it in App Store-bound projects.
 @MainActor
 public final class NavigationStackController: UINavigationController {
+    /// The observer that receives navigation notifications and supplies orientation policy.
+    ///
+    /// This reference is weak. The host must retain the delegate for as long as it is needed.
     public weak var navigationStackDelegate: (any NavigationStackControllerDelegate)?
 
-    /// The next controller to revisit is the first element.
+    /// The strongly retained forward history, with the next page to revisit first.
+    ///
+    /// Outside an active transition, these controllers are no longer children of this navigation
+    /// controller. During forward navigation, the restored page may already be a child while its
+    /// removal from forward history is still pending.
+    /// Use ``clearForwardHistory()`` to release the library's references.
     public private(set) var forwardViewControllers: [UIViewController] = []
 
+    /// Whether the back stack contains a page before the current top page.
+    ///
+    /// A true value does not guarantee that a request can start during a transition or callback.
     public var canGoBack: Bool { viewControllers.count > 1 }
-    /// Whether the next forward controller is available for containment here.
+    /// Whether the next forward page is available to restore.
+    ///
+    /// Returns false if history is empty or the first controller already has a parent, including
+    /// during its restoration. Later entries are not skipped. If another container adopts the next
+    /// page, detaching that page makes it available again.
+    /// A true value does not guarantee that a request can start during a transition or callback.
     public var canGoForward: Bool { nextForwardViewController != nil }
 
     /// Whether a navigation or another UIKit transition currently prevents a new request.
@@ -60,13 +121,16 @@ public final class NavigationStackController: UINavigationController {
         }
     }
 
-    /// The baseline swipe commit distance, in points.
+    /// The baseline swipe commit distance, in points. The default is 187.5.
+    ///
+    /// The effective threshold is capped by ``maximumSwipeCompletionThreshold``.
     public var swipeCompletionDistance: CGFloat = 187.5
-    /// The fraction of the width that caps the swipe commit distance.
+    /// The fraction of the container width that caps the swipe commit distance. The default is 0.5.
     public var maximumSwipeCompletionThreshold: CGFloat = 0.5
-    /// The time interval used to project release velocity when deciding whether to finish a swipe.
+    /// The projection duration, in seconds, used to evaluate release velocity. The default is 0.3.
     public var swipeKineticProjectionDuration: TimeInterval = 0.3
 
+    /// The reserved native transition delegate; use ``navigationStackDelegate`` instead.
     @available(*, unavailable, message: "NavigationStackController owns its transition delegate. Use navigationStackDelegate.")
     public override var delegate: (any UINavigationControllerDelegate)? {
         get { super.delegate }
@@ -79,19 +143,29 @@ public final class NavigationStackController: UINavigationController {
         }
     }
 
+    /// The delegate's supported orientations, or UIKit's policy when the delegate returns `nil`.
+    ///
+    /// See ``NavigationStackControllerDelegate/navigationStackControllerSupportedInterfaceOrientations(_:)``.
     public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         withDelegateCallback {
             navigationStackDelegate?.navigationStackControllerSupportedInterfaceOrientations(self)
         } ?? super.supportedInterfaceOrientations
     }
 
+    /// The delegate's preferred presentation orientation, or UIKit's policy when it returns `nil`.
+    ///
+    /// See ``NavigationStackControllerDelegate/navigationStackControllerPreferredInterfaceOrientationForPresentation(_:)``.
     public override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
         withDelegateCallback {
             navigationStackDelegate?.navigationStackControllerPreferredInterfaceOrientationForPresentation(self)
         } ?? super.preferredInterfaceOrientationForPresentation
     }
 
-    /// Assigning this property is equivalent to replacing the stack without animation.
+    /// The native back stack, ordered from the root through the current top page.
+    ///
+    /// Assignment calls ``setViewControllers(_:animated:)`` without animation and follows its
+    /// validation rules. During an interactive transition, UIKit may expose the tentative destination
+    /// before the transition commits or cancels.
     public override var viewControllers: [UIViewController] {
         get { super.viewControllers }
         set { setViewControllers(newValue, animated: false) }
@@ -114,21 +188,37 @@ public final class NavigationStackController: UINavigationController {
         delegateCallbackDepth == 0 && !isTransitioning
     }
 
+    /// Creates a navigation controller with its first page.
+    ///
+    /// - Parameter rootViewController: The root page to display.
     public override init(rootViewController: UIViewController) {
         super.init(rootViewController: rootViewController)
         configure()
     }
 
+    /// Creates an empty navigation controller with custom bar classes.
+    ///
+    /// - Parameters:
+    ///   - navigationBarClass: A `UINavigationBar` subclass, or `nil` for the standard class.
+    ///   - toolbarClass: A `UIToolbar` subclass, or `nil` for the standard class.
     public override init(navigationBarClass: AnyClass?, toolbarClass: AnyClass?) {
         super.init(navigationBarClass: navigationBarClass, toolbarClass: toolbarClass)
         configure()
     }
 
+    /// Creates a navigation controller using UIKit's nib initialization.
+    ///
+    /// - Parameters:
+    ///   - nibNameOrNil: The nib name, or `nil`.
+    ///   - nibBundleOrNil: The bundle containing the nib, or `nil` for UIKit's default lookup.
     public override init(nibName nibNameOrNil: String?, bundle nibBundleOrNil: Bundle?) {
         super.init(nibName: nibNameOrNil, bundle: nibBundleOrNil)
         configure()
     }
 
+    /// Restores a navigation controller from an archive and installs its navigation behavior.
+    ///
+    /// - Parameter coder: The decoder containing the archived controller.
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
         configure()
@@ -139,18 +229,29 @@ public final class NavigationStackController: UINavigationController {
         super.delegate = nativeDelegate
     }
 
+    /// Installs bidirectional navigation gestures after UIKit loads the view.
     public override func viewDidLoad() {
         super.viewDidLoad()
         gestureController.install()
         gestureController.setEnabled(allowsBackForwardNavigationGestures)
     }
 
+    /// Restores the controller's gesture ownership after the view appears.
+    ///
+    /// - Parameter animated: Whether the appearance was animated.
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         gestureController.install()
     }
 
-    /// Pushes a new controller and clears forward history after the navigation succeeds.
+    /// Pushes a new page and clears forward history after navigation succeeds.
+    ///
+    /// Requests during transitions or delegate callbacks are ignored, as are controllers already
+    /// in either history, this navigation controller itself, or controllers with an existing parent.
+    ///
+    /// - Parameters:
+    ///   - viewController: The unparented page to append.
+    ///   - animated: Whether to animate the presentation.
     public override func pushViewController(_ viewController: UIViewController, animated: Bool) {
         guard isConfigured else {
             super.pushViewController(viewController, animated: animated)
@@ -165,7 +266,15 @@ public final class NavigationStackController: UINavigationController {
         navigate(to: viewController, stack: viewControllers + [viewController], operation: .push, forwardHistory: [], animated: animated)
     }
 
-    /// Replaces the back stack and clears forward history after the navigation succeeds.
+    /// Replaces the back stack and clears forward history after navigation succeeds.
+    ///
+    /// Ignores empty arrays, duplicate instances, this navigation controller itself, and pages owned
+    /// by another parent. Requests during transitions or delegate callbacks are also ignored.
+    /// Replacing an identical stack is a no-op unless there is forward history to clear.
+    ///
+    /// - Parameters:
+    ///   - viewControllers: The root-to-top stack to display.
+    ///   - animated: Whether to animate the change of top page.
     public override func setViewControllers(_ viewControllers: [UIViewController], animated: Bool) {
         guard isConfigured else {
             super.setViewControllers(viewControllers, animated: animated)
@@ -177,7 +286,11 @@ public final class NavigationStackController: UINavigationController {
         navigate(to: destination, stack: viewControllers, operation: .set, forwardHistory: [], animated: animated)
     }
 
-    /// Removes the current top controller into forward history.
+    /// Removes the current top page into forward history.
+    ///
+    /// - Parameter animated: Whether to animate the presentation.
+    /// - Returns: The outgoing page accepted for removal, or `nil` if there is no previous page or
+    ///   a transition or delegate callback prevents the request. This does not signal animation completion.
     @discardableResult
     public override func popViewController(animated: Bool) -> UIViewController? {
         guard isConfigured else { return super.popViewController(animated: animated) }
@@ -188,7 +301,14 @@ public final class NavigationStackController: UINavigationController {
         return outgoing
     }
 
-    /// Moves every controller after the specified controller into forward history, in stack order.
+    /// Moves every page after the specified page into forward history, in stack order.
+    ///
+    /// - Parameters:
+    ///   - viewController: The page to return to in the current back stack.
+    ///   - animated: Whether to animate the presentation.
+    /// - Returns: The pages accepted for removal in their original stack order, or `nil` if the target
+    ///   is absent, already on top, or a transition or delegate callback prevents the request.
+    ///   This does not signal animation completion.
     @discardableResult
     public override func popToViewController(_ viewController: UIViewController, animated: Bool) -> [UIViewController]? {
         guard isConfigured else { return super.popToViewController(viewController, animated: animated) }
@@ -201,6 +321,11 @@ public final class NavigationStackController: UINavigationController {
         return removed
     }
 
+    /// Moves every page above the root into forward history, in stack order.
+    ///
+    /// - Parameter animated: Whether to animate the presentation.
+    /// - Returns: The pages accepted for removal, or `nil` if there is no previous page or a transition
+    ///   or delegate callback prevents the request. This does not signal animation completion.
     @discardableResult
     public override func popToRootViewController(animated: Bool) -> [UIViewController]? {
         guard isConfigured else { return super.popToRootViewController(animated: animated) }
@@ -208,7 +333,11 @@ public final class NavigationStackController: UINavigationController {
         return popToViewController(root, animated: animated)
     }
 
-    /// An alias for ``popViewController(animated:)``; returns the outgoing controller, or nil.
+    /// Moves backward in history by calling ``popViewController(animated:)``.
+    ///
+    /// - Parameter animated: Whether to animate the presentation.
+    /// - Returns: The outgoing page accepted for removal, or `nil` if no request can start.
+    ///   This does not signal animation completion.
     @discardableResult
     public func goBack(animated: Bool) -> UIViewController? {
         popViewController(animated: animated)
@@ -216,8 +345,14 @@ public final class NavigationStackController: UINavigationController {
 
     /// Restores the next forward controller, preserving the rest of forward history.
     ///
-    /// Returns the restored controller, or nil if no request can start. The return value describes
-    /// admission, not animation completion. Observe ``navigationStackDelegate`` for completion.
+    /// The next page must have no parent. If another container adopted it, this method ignores the
+    /// request without skipping to a later page.
+    ///
+    /// - Parameter animated: Whether to animate the presentation.
+    /// - Returns: The page accepted for restoration, or `nil` if no forward page is available or
+    ///   a transition or delegate callback prevents the request. This does not signal animation completion.
+    ///
+    /// See <doc:History> for the distinction between display and history notifications.
     @discardableResult
     public func goForward(animated: Bool) -> UIViewController? {
         guard canStartNavigation, let destination = nextForwardViewController else { return nil }
@@ -226,7 +361,10 @@ public final class NavigationStackController: UINavigationController {
         return destination
     }
 
-    /// Releases this controller's forward-history references. Requests during navigation or notifications are ignored.
+    /// Releases this controller's forward-history references.
+    ///
+    /// Requests during transitions or delegate callbacks are ignored. Clearing nonempty history sends
+    /// a history-change notification; clearing an already empty history does nothing.
     public func clearForwardHistory() {
         guard canStartNavigation, !forwardViewControllers.isEmpty else { return }
         forwardViewControllers.removeAll()
