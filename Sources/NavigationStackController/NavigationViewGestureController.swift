@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 
 @MainActor
@@ -331,3 +332,5 @@ private final class NavigationSwipeProgressTracker {
         forceCancelled = false
     }
 }
+
+#endif
