@@ -1,33 +1,9 @@
 #if canImport(UIKit)
 import NavigationStackController
-import SwiftUI
 import UIKit
 
-struct UIKitNavigationDemo: UIViewControllerRepresentable {
-    func makeCoordinator() -> Observer { Observer() }
-
-    func makeUIViewController(context: Context) -> NavigationStackController {
-        let controller = NavigationStackController(rootViewController: DemoPageController(number: 1))
-        controller.navigationStackDelegate = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ uiViewController: NavigationStackController, context: Context) {}
-
-    final class Observer: NavigationStackControllerDelegate {
-        func navigationStackControllerDidChangeHistory(_ controller: NavigationStackController) {
-            (controller.topViewController as? DemoPageController)?.updateNavigationButtons()
-        }
-
-        func navigationStackController(_ controller: NavigationStackController, didShow viewController: UIViewController,
-                                       operation: NavigationStackOperation, animated: Bool) {
-            (viewController as? DemoPageController)?.updateNavigationButtons()
-        }
-    }
-}
-
 @MainActor
-private final class DemoPageController: UIViewController {
+final class DemoPageController: UIViewController {
     private let number: Int
     private var forwardButton: UIButton?
 

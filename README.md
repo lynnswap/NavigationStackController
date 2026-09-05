@@ -96,7 +96,9 @@ Assign the AppKit `NavigationStackControllerDelegate` to `navigation.delegate`. 
 
 ## Example app
 
-Open `NavigationStackController.xcworkspace` and run the **MiniApp** scheme on an iPhone / iPad Simulator or on My Mac.
+Open `NavigationStackController.xcworkspace` and run the **MiniApp** scheme on an iPhone / iPad Simulator or on My Mac. When replacing an installed SwiftUI version of this demo, reinstall the demo once to discard its old scene sessions.
+
+The example starts directly through UIKit or AppKit from `main.swift`. On iOS, `AppDelegate` selects the scene configuration and `SceneDelegate` owns a `UIWindow` with the navigation controller as its root. On macOS, `AppDelegate` owns an `NSWindowController` and displays the split navigation controller directly.
 
 The UIKit example includes new-page and forward actions, horizontal scrolling content, navigation-bar visibility, and layout-direction controls. The AppKit example provides two independently navigable panes.
 
