@@ -1,3 +1,4 @@
+#if os(macOS)
 //
 //  ContentView.swift
 //  MiniApp
@@ -640,3 +641,5 @@ private final class DemoHorizontalScrollDocumentView: NSView {
 #Preview("Split Navigation Horizontal Scroll") {
     ContentView(contentStyle: .horizontalScroll)
 }
+
+#endif

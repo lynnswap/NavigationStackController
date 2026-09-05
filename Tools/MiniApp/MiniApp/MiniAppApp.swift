@@ -11,7 +11,11 @@ import SwiftUI
 struct MiniAppApp: App {
     var body: some Scene {
         WindowGroup {
+            #if os(macOS)
             ContentView()
+            #else
+            UIKitNavigationDemo()
+            #endif
         }
     }
 }
