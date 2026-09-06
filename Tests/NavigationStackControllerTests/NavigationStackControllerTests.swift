@@ -820,6 +820,66 @@ func pendingSwipeReturnsReversedInputToScrollableContent(horizontalSign: Int32) 
 }
 
 @MainActor
+@Test(arguments: [NSEvent.Phase.began, .mayBegin])
+func pendingForwardedSwipePreservesInitialScrollPolicy(initialPhase: NSEvent.Phase) throws {
+    let rootViewController = TestViewController()
+    let scrollRootViewController = HorizontalScrollRootViewController()
+    let navigationController = NavigationStackController(rootViewController: rootViewController)
+
+    navigationController.view.frame = NSRect(x: 0, y: 0, width: 300, height: 80)
+    navigationController.minimumSwipeAnimationDuration = 0
+    navigationController.maximumSwipeAnimationDuration = 0
+    navigationController.pushViewController(scrollRootViewController, animated: false)
+
+    let scrollView = scrollRootViewController.view as! NSScrollView
+    scrollView.documentView?.frame.size.width = 600
+    scrollView.layoutSubtreeIfNeeded()
+    scrollView.contentView.scroll(to: NSPoint(x: 100, y: 0))
+    scrollView.reflectScrolledClipView(scrollView.contentView)
+    let location = NSPoint(x: 50, y: 40)
+
+    try #require(navigationController.handleForwardedSwipe(
+        with: makeScrollWheelEvent(deltaX: initialPhase == .mayBegin ? 0 : 5, phase: initialPhase, location: location),
+        ignoringHorizontalScrollViews: true
+    ))
+    #expect(navigationController.isGestureEventMonitorInstalled)
+
+    if initialPhase == .mayBegin {
+        try #require(navigationController.handleLocalGestureMonitorEvent(
+            makeScrollWheelEvent(deltaX: 5, phase: .began, location: location),
+            requiringMatchingWindow: false
+        ))
+    }
+
+    try #require(navigationController.handleLocalGestureMonitorEvent(
+        makeScrollWheelEvent(deltaX: 4, phase: .changed, location: location),
+        requiringMatchingWindow: false
+    ))
+    #expect(navigationController.isGestureEventMonitorInstalled)
+    #expect(navigationController.topViewController === scrollRootViewController)
+
+    try #require(navigationController.handleLocalGestureMonitorEvent(
+        makeScrollWheelEvent(deltaX: 220, phase: .changed, location: location),
+        requiringMatchingWindow: false
+    ))
+    #expect(navigationController.handleLocalGestureMonitorEvent(
+        makeScrollWheelEvent(deltaX: 0, phase: .ended, location: location),
+        requiringMatchingWindow: false
+    ))
+    #expect(navigationController.topViewController === rootViewController)
+    #expect(!navigationController.isGestureEventMonitorInstalled)
+    #expect(scrollView.contentView.bounds.origin.x == 100)
+
+    navigationController.goForward(animated: false)
+    #expect(!navigationController.handleForwardedSwipe(
+        with: makeScrollWheelEvent(deltaX: 5, phase: .began, location: location),
+        ignoringHorizontalScrollViews: false
+    ))
+    #expect(!navigationController.isGestureEventMonitorInstalled)
+    #expect(navigationController.topViewController === scrollRootViewController)
+}
+
+@MainActor
 @Test func activeSwipeLocalMonitorConsumesScrollWheelFromNestedHorizontalScrollView() {
     let rootViewController = TestViewController()
     let scrollRootViewController = HorizontalScrollRootViewController()

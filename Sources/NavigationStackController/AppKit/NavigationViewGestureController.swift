@@ -155,9 +155,9 @@ struct NavigationSwipeStartClassifier {
 
 @MainActor
 private final class NavigationSwipeProgressTracker {
-    private enum State {
+    private enum State: Equatable {
         case none
-        case pending
+        case pending(ignoringHorizontalScrollViews: Bool)
         case swiping
         case animating
     }
@@ -214,8 +214,13 @@ private final class NavigationSwipeProgressTracker {
         }
 
         if event.phase.contains(.mayBegin) || event.phase.contains(.began) || (state == .none && event.phase.contains(.changed) && event.momentumPhase.isEmpty) {
+            let initialScrollPolicy = if event.phase.contains(.began), case .pending(let policy) = state {
+                policy
+            } else {
+                ignoringHorizontalScrollViews
+            }
             reset()
-            state = .pending
+            state = .pending(ignoringHorizontalScrollViews: initialScrollPolicy)
         }
 
         guard state != .none else {
@@ -231,8 +236,8 @@ private final class NavigationSwipeProgressTracker {
         cumulativeDeltaX += event.scrollingDeltaX
         cumulativeDeltaY += event.scrollingDeltaY
 
-        if state == .pending {
-            if !ignoringHorizontalScrollViews,
+        if case .pending(let ignoresHorizontalScrollViews) = state {
+            if !ignoresHorizontalScrollViews,
                viewGestureController.shouldDeferSwipeTrackingToHorizontalScrollView(at: event.locationInWindow, horizontalDelta: cumulativeDeltaX) {
                 reset()
                 return false
