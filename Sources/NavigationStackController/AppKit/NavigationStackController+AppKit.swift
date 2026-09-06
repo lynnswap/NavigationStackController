@@ -446,18 +446,19 @@ public final class NavigationStackController: NSViewController {
         return handled
     }
 
-    func shouldDeferSwipeTrackingToHorizontalScrollView(for event: NSEvent) -> Bool {
+    func shouldDeferSwipeTrackingToHorizontalScrollView(at locationInWindow: NSPoint, horizontalDelta: CGFloat) -> Bool {
         let localPoint = if unsafe containerView.window == nil {
-            event.locationInWindow
+            locationInWindow
         } else {
-            containerView.convert(event.locationInWindow, from: nil)
+            containerView.convert(locationInWindow, from: nil)
         }
-        let hitView = containerView.hitTest(localPoint)
+        let superview = unsafe containerView.superview
+        let hitView = containerView.hitTest(containerView.convert(localPoint, to: superview))
 
         let shouldDefer = NavigationHorizontalScrollConflictResolver.canScrollHorizontally(
             from: hitView,
             inside: containerView,
-            deltaX: event.scrollingDeltaX
+            deltaX: horizontalDelta
         )
         return shouldDefer
     }
@@ -509,7 +510,7 @@ public final class NavigationStackController: NSViewController {
                 return false
             }
 
-            let handled = handleScrollWheel(event, ignoringHorizontalScrollViews: true)
+            let handled = handleScrollWheel(event)
             return handled
         case .endGesture:
             guard matchesWindow else {
@@ -940,7 +941,7 @@ struct NavigationHorizontalScrollConflictResolver {
         var currentView = hitView
         while let view = currentView {
             if let scrollView = view as? NSScrollView {
-                let canScroll = if abs(deltaX) < NavigationSwipeStartClassifier.defaultMinimumHorizontalDistance {
+                let canScroll = if deltaX == 0 {
                     canScrollHorizontallyInAnyDirection(scrollView)
                 } else {
                     canScrollHorizontally(scrollView, deltaX: deltaX)
