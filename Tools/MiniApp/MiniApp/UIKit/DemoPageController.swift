@@ -81,12 +81,35 @@ final class DemoPageController: UIViewController {
         content.axis = .vertical
         content.spacing = 16
         content.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(content)
+        for index in 1...20 {
+            let row = UILabel()
+            row.text = "Page \(number) · Row \(index)"
+            row.textAlignment = .center
+            row.font = .preferredFont(forTextStyle: .headline)
+            row.adjustsFontForContentSizeCategory = true
+            row.numberOfLines = 0
+            row.backgroundColor = index.isMultiple(of: 2) ? .secondarySystemFill : .tertiarySystemFill
+            row.layer.cornerRadius = 12
+            row.clipsToBounds = true
+            row.heightAnchor.constraint(greaterThanOrEqualToConstant: 72).isActive = true
+            content.addArrangedSubview(row)
+        }
+
+        let verticalScrollView = UIScrollView()
+        verticalScrollView.accessibilityIdentifier = "verticalContent"
+        verticalScrollView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(verticalScrollView)
+        verticalScrollView.addSubview(content)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            content.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            content.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
-            content.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+            verticalScrollView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            verticalScrollView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
+            verticalScrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            verticalScrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: verticalScrollView.contentLayoutGuide.leadingAnchor, constant: 24),
+            content.trailingAnchor.constraint(equalTo: verticalScrollView.contentLayoutGuide.trailingAnchor, constant: -24),
+            content.topAnchor.constraint(equalTo: verticalScrollView.contentLayoutGuide.topAnchor, constant: 24),
+            content.bottomAnchor.constraint(equalTo: verticalScrollView.contentLayoutGuide.bottomAnchor, constant: -24),
+            content.widthAnchor.constraint(equalTo: verticalScrollView.frameLayoutGuide.widthAnchor, constant: -48)
         ])
         updateNavigationButtons()
     }
