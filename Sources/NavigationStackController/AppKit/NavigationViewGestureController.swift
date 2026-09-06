@@ -16,7 +16,7 @@ final class NavigationViewGestureController {
         }
 
         if swipeProgressTracker.isActive {
-            return swipeProgressTracker.handleScrollWheel(event)
+            return swipeProgressTracker.handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringHorizontalScrollViews)
         }
 
         guard navigationController.allowsBackForwardNavigationGestures, event.hasPreciseScrollingDeltas, NSEvent.isSwipeTrackingFromScrollEventsEnabled else {
@@ -27,11 +27,11 @@ final class NavigationViewGestureController {
             return false
         }
 
-        if !ignoringHorizontalScrollViews, navigationController.shouldDeferSwipeTrackingToHorizontalScrollView(for: event) {
-            return false
-        }
+        return swipeProgressTracker.handleScrollWheel(event, ignoringHorizontalScrollViews: ignoringHorizontalScrollViews)
+    }
 
-        return swipeProgressTracker.handleScrollWheel(event)
+    func shouldDeferSwipeTrackingToHorizontalScrollView(at locationInWindow: NSPoint, horizontalDelta: CGFloat) -> Bool {
+        navigationController?.shouldDeferSwipeTrackingToHorizontalScrollView(at: locationInWindow, horizontalDelta: horizontalDelta) ?? false
     }
 
     func wantsScrollEventsForSwipeTracking(on axis: NSEvent.GestureAxis) -> Bool {
@@ -134,9 +134,7 @@ struct NavigationSwipeStartClassifier {
         case cancel
     }
 
-    static let defaultMinimumHorizontalDistance: CGFloat = 10
-
-    var minimumHorizontalDistance: CGFloat = Self.defaultMinimumHorizontalDistance
+    var minimumHorizontalDistance: CGFloat = 10
     var verticalHysteresis: CGFloat = 1.2
 
     func decision(deltaX: CGFloat, deltaY: CGFloat) -> Decision {
@@ -157,9 +155,9 @@ struct NavigationSwipeStartClassifier {
 
 @MainActor
 private final class NavigationSwipeProgressTracker {
-    private enum State {
+    private enum State: Equatable {
         case none
-        case pending
+        case pending(ignoringHorizontalScrollViews: Bool)
         case swiping
         case animating
     }
@@ -206,7 +204,7 @@ private final class NavigationSwipeProgressTracker {
         }
     }
 
-    func handleScrollWheel(_ event: NSEvent) -> Bool {
+    func handleScrollWheel(_ event: NSEvent, ignoringHorizontalScrollViews: Bool) -> Bool {
         guard let viewGestureController else {
             return false
         }
@@ -216,8 +214,13 @@ private final class NavigationSwipeProgressTracker {
         }
 
         if event.phase.contains(.mayBegin) || event.phase.contains(.began) || (state == .none && event.phase.contains(.changed) && event.momentumPhase.isEmpty) {
+            let initialScrollPolicy = if event.phase.contains(.began), case .pending(let policy) = state {
+                policy
+            } else {
+                ignoringHorizontalScrollViews
+            }
             reset()
-            state = .pending
+            state = .pending(ignoringHorizontalScrollViews: initialScrollPolicy)
         }
 
         guard state != .none else {
@@ -233,7 +236,13 @@ private final class NavigationSwipeProgressTracker {
         cumulativeDeltaX += event.scrollingDeltaX
         cumulativeDeltaY += event.scrollingDeltaY
 
-        if state == .pending {
+        if case .pending(let ignoresHorizontalScrollViews) = state {
+            if !ignoresHorizontalScrollViews,
+               viewGestureController.shouldDeferSwipeTrackingToHorizontalScrollView(at: event.locationInWindow, horizontalDelta: cumulativeDeltaX) {
+                reset()
+                return false
+            }
+
             switch classifier.decision(deltaX: cumulativeDeltaX, deltaY: cumulativeDeltaY) {
             case .pending:
                 if !event.momentumPhase.isEmpty {
