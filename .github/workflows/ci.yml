@@ -109,11 +109,11 @@ jobs:
       - name: Run UIKit package and consumer tests
         run: |
           destination="platform=iOS Simulator,id=${SIMULATOR_UDID}"
-          ./Tools/test-uikit.sh "$destination"
+          ./Tools/test-uikit.sh "$destination" -parallel-testing-enabled NO
 
           cd Tools/UIKitConsumer
           xcodebuild -scheme UIKitConsumer -testPlan UIKitConsumer \
-            -destination "$destination" test
+            -destination "$destination" -parallel-testing-enabled NO test
 
       - name: Verify obfuscated navigation runtime names
         run: |
