@@ -91,16 +91,24 @@ jobs:
           swift --version
           xcodebuild -showsdks
 
+      - name: Start the iOS Simulator before building
+        timeout-minutes: 2
+        run: |
+          simulator_id="$(xcrun simctl create "NavigationStackController CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17)"
+          echo "SIMULATOR_UDID=${simulator_id}" >> "$GITHUB_ENV"
+          xcrun simctl boot "$simulator_id"
+
       - name: Run Swift package tests
         run: |
           swift test
 
+      - name: Wait for the iOS Simulator
+        timeout-minutes: 5
+        run: xcrun simctl bootstatus "$SIMULATOR_UDID" -b
+
       - name: Run UIKit package and consumer tests
         run: |
-          simulator_id="$(xcrun simctl create "NavigationStackController CI" com.apple.CoreSimulator.SimDeviceType.iPhone-17)"
-          trap 'xcrun simctl delete "$simulator_id"' EXIT
-
-          destination="platform=iOS Simulator,id=${simulator_id}"
+          destination="platform=iOS Simulator,id=${SIMULATOR_UDID}"
           ./Tools/test-uikit.sh "$destination"
 
           cd Tools/UIKitConsumer
@@ -115,3 +123,8 @@ jobs:
             CODE_SIGNING_ALLOWED=NO build
           python3 Tools/check-private-symbols.py \
             "$RUNNER_TEMP/navigation-stack-release/Build/Products/Release-iphonesimulator/MiniApp.app"
+
+      - name: Delete the test Simulator
+        if: always() && env.SIMULATOR_UDID != ''
+        timeout-minutes: 2
+        run: xcrun simctl delete "$SIMULATOR_UDID"
